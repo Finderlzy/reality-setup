@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），可选套住宅 IP
-# 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/Writing/main/scripts/setup.sh)
+# 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
 PORT=8555
 PANEL_PORT=8080
 
@@ -21,7 +21,11 @@ fi
 if [ -z "$IP" ]; then echo "服务器 IP 不能为空"; exit 1; fi
 
 apt update
-apt install -y curl openssl ufw python3
+apt install -y curl openssl ufw python3 unattended-upgrades fail2ban python3-systemd
+
+# ---- 系统安全补丁每天自动安装（只装安全更新，不会自动重启）----
+printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' > /etc/apt/apt.conf.d/20auto-upgrades
+systemctl enable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
 
 # ---- 先测住宅代理，不通就不往下装 ----
 if [ -n "$RES_IP" ]; then
@@ -110,6 +114,39 @@ ufw allow "${SSH_PORT:-22}"/tcp
 ufw allow "$PORT"/tcp
 ufw --force enable
 
+# ---- fail2ban：10 分钟内 SSH 密码输错 5 次，封这个 IP 1 小时 ----
+cat > /etc/fail2ban/jail.d/sshd.local <<EOF
+[sshd]
+enabled = true
+backend = systemd
+port = ${SSH_PORT:-22}
+maxretry = 5
+findtime = 10m
+bantime = 1h
+EOF
+systemctl enable fail2ban >/dev/null 2>&1 || true
+systemctl restart fail2ban || true
+sleep 2
+if fail2ban-client status sshd >/dev/null 2>&1; then
+  F2B="已开启（10 分钟内输错 5 次密码封 1 小时）"
+else
+  F2B="没开成，不影响节点使用，可运行 systemctl status fail2ban 查看原因"
+fi
+echo "== fail2ban：$F2B =="
+
+# ---- 网络优化：开启 BBR（容器类 VPS 改不了内核参数，开不了就跳过，不影响节点）----
+modprobe tcp_bbr 2>/dev/null || true
+if grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null; then
+  printf 'net.core.default_qdisc = fq\nnet.ipv4.tcp_congestion_control = bbr\n' > /etc/sysctl.d/99-bbr.conf
+  sysctl -p /etc/sysctl.d/99-bbr.conf >/dev/null 2>&1 || true
+fi
+if [ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)" = bbr ]; then
+  BBR="已开启"
+else
+  BBR="没开成（多半是容器类 VPS 不允许改内核参数），不影响节点使用"
+fi
+echo "== BBR：$BBR =="
+
 # ---- 自测：服务器自己连自己的节点 ----
 sleep 3
 export LINK=$(cat /root/vless.txt) XRAY=$(ls /usr/local/x-ui/bin/xray-linux-* | head -1)
@@ -139,6 +176,11 @@ echo
 echo "===== 完成 ====="
 echo "节点链接（复制下面这行导入代理软件，也存在 /root/vless.txt）："
 cat /root/vless.txt
+echo
+echo "BBR 网络优化：$BBR"
+echo "系统安全更新：已设为每天自动安装"
+echo "SSH 防爆破（fail2ban）：$F2B"
+echo "  自己被误封了：换个网络连上去，运行 fail2ban-client set sshd unbanip 你的IP"
 echo
 echo "面板（排查用，只能通过 SSH 隧道打开）："
 echo "  1. 在自己电脑上运行：ssh -L $PANEL_PORT:127.0.0.1:$PANEL_PORT root@$IP"
