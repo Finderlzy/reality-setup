@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 一键搭建 VLESS + Reality 节点（3x-ui 面板），可选套住宅 IP
+# 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-PORT=8555
+PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
+HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
 
 if [ "$(id -u)" -ne 0 ]; then echo "请用 root 用户运行"; exit 1; fi
@@ -21,7 +22,7 @@ fi
 if [ -z "$IP" ]; then echo "服务器 IP 不能为空"; exit 1; fi
 
 apt update
-apt install -y curl openssl ufw python3 unattended-upgrades fail2ban python3-systemd
+apt install -y curl openssl ufw python3 unattended-upgrades fail2ban python3-systemd qrencode
 
 # ---- 系统安全补丁每天自动安装（只装安全更新，不会自动重启）----
 printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' > /etc/apt/apt.conf.d/20auto-upgrades
@@ -47,10 +48,16 @@ systemctl restart x-ui
 B="http://127.0.0.1:$PANEL_PORT/$XUI_WEB_BASE_PATH"
 for i in $(seq 1 30); do curl -s -o /dev/null "$B/" && break; sleep 1; done
 
+# ---- Hysteria2 用的自签证书（有效期 10 年）----
+HY_CERT=/root/cert/hy2.crt HY_KEY=/root/cert/hy2.key
+mkdir -p /root/cert && chmod 700 /root/cert
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+  -subj "/CN=$HY_SNI" -addext "subjectAltName=DNS:$HY_SNI" -keyout "$HY_KEY" -out "$HY_CERT" 2>/dev/null
+
 # ---- 在面板里建入站、客户端、住宅出站 ----
-export IP PORT B XUI_API_TOKEN RES_IP RES_PORT="${RES_PORT:-}" RES_USER="${RES_USER:-}" RES_PASS="${RES_PASS:-}"
+export HY_CERT HY_KEY HY_SNI IP PORT B XUI_API_TOKEN RES_IP RES_PORT="${RES_PORT:-}" RES_USER="${RES_USER:-}" RES_PASS="${RES_PASS:-}"
 python3 - <<'PY'
-import json, os, secrets, urllib.parse, urllib.request
+import hashlib, json, os, secrets, ssl, subprocess, urllib.parse, urllib.request
 
 E = os.environ
 def api(path, form=None, body=None):
@@ -65,34 +72,74 @@ def api(path, form=None, body=None):
         raise SystemExit(f"面板接口出错：{path} {res.get('msg')}")
     return res["obj"]
 
-# 伪装目标：和面板里点“扫描”一样，挑第一个可用的
-for target in ["www.microsoft.com:443", "www.apple.com:443", "www.amazon.com:443"]:
-    scan = api("/panel/api/server/scanRealityTarget", form={"target": target})
-    if scan.get("feasible"):
-        break
-else:
-    raise SystemExit("几个伪装网站都不可用，请到面板里手动扫描换一个")
-print("伪装网站：" + target)
+# 伪装目标：和面板里点“扫描”一样先确认可用，再挑服务器连过去 TLS 握手最快的（离得近，伪装更像真的）
+# 候选都是国内能正常访问的大站：伪装成被墙的网站反而会被干扰
+def handshake_ms(host):
+    times = []
+    for _ in range(3):
+        out = subprocess.run(["curl", "-so", "/dev/null", "-m", "5", "-w", "%{time_appconnect}", f"https://{host}"],
+                             capture_output=True, text=True).stdout
+        if out and float(out) > 0:
+            times.append(float(out) * 1000)
+    return min(times) if times else None
 
+best = None
+for host in ["www.microsoft.com", "www.apple.com", "www.amazon.com", "www.nvidia.com",
+             "www.amd.com", "www.samsung.com", "www.cisco.com", "www.oracle.com"]:
+    scan = api("/panel/api/server/scanRealityTarget", form={"target": host + ":443"})
+    ms = handshake_ms(host) if scan.get("feasible") else None
+    if ms is not None and (best is None or ms < best[0]):
+        best = (ms, host, scan)
+if best is None:
+    raise SystemExit("几个伪装网站都不可用，请到面板里手动扫描换一个")
+ms, host, scan = best
+target = host + ":443"
+print(f"伪装网站：{host}（握手 {ms:.0f} ms）")
+
+port = int(E["PORT"])
+sniffing = json.dumps({"enabled": True, "destOverride": ["http", "tls", "quic"], "metadataOnly": False, "routeOnly": True})
+def add_inbound(remark, protocol, settings, stream):
+    stream["externalProxy"] = [{"forceTls": "same", "dest": E["IP"], "port": port, "remark": ""}]
+    api("/panel/api/inbounds/add", body={"up": 0, "down": 0, "total": 0, "remark": remark, "enable": True,
+                                         "expiryTime": 0, "listen": "", "port": port, "protocol": protocol,
+                                         "settings": json.dumps(settings), "streamSettings": json.dumps(stream),
+                                         "sniffing": sniffing})
+def client(**kw):
+    return {"limitIp": 0, "totalGB": 0, "expiryTime": 0, "enable": True, "tgId": 0,
+            "subId": secrets.token_hex(8), "reset": 0, **kw}
+
+# 主节点：VLESS + Reality，走 TCP
 keys = api("/panel/api/server/getNewX25519Cert")
 uuid = api("/panel/api/server/getNewUUID")["uuid"]
-port = int(E["PORT"])
-settings = {"clients": [{"id": uuid, "flow": "xtls-rprx-vision", "email": "me", "limitIp": 0, "totalGB": 0,
-                         "expiryTime": 0, "enable": True, "tgId": "", "subId": secrets.token_hex(8), "reset": 0}],
-            "decryption": "none", "fallbacks": []}
-stream = {"network": "tcp", "security": "reality",
-          "externalProxy": [{"forceTls": "same", "dest": E["IP"], "port": port, "remark": ""}],
-          "realitySettings": {"show": False, "xver": 0, "target": target, "serverNames": scan["serverNames"],
-                              "privateKey": keys["privateKey"], "minClientVer": "", "maxClientVer": "",
-                              "maxTimediff": 0, "shortIds": [secrets.token_hex(4)],
-                              "settings": {"publicKey": keys["publicKey"], "fingerprint": "chrome",
-                                           "serverName": "", "spiderX": "/"}},
-          "tcpSettings": {"acceptProxyProtocol": False, "header": {"type": "none"}}}
-sniffing = {"enabled": True, "destOverride": ["http", "tls", "quic"], "metadataOnly": False, "routeOnly": True}
-api("/panel/api/inbounds/add", body={"up": 0, "down": 0, "total": 0, "remark": "my-node", "enable": True,
-                                     "expiryTime": 0, "listen": "", "port": port, "protocol": "vless",
-                                     "settings": json.dumps(settings), "streamSettings": json.dumps(stream),
-                                     "sniffing": json.dumps(sniffing)})
+add_inbound("my-node", "vless",
+            {"clients": [client(id=uuid, flow="xtls-rprx-vision", email="me")], "decryption": "none", "fallbacks": []},
+            {"network": "tcp", "security": "reality",
+             "realitySettings": {"show": False, "xver": 0, "target": target, "serverNames": scan["serverNames"],
+                                 "privateKey": keys["privateKey"], "minClientVer": "", "maxClientVer": "",
+                                 "maxTimediff": 0, "shortIds": [secrets.token_hex(4)],
+                                 "settings": {"publicKey": keys["publicKey"], "fingerprint": "chrome",
+                                              "serverName": "", "spiderX": "/"}},
+             "tcpSettings": {"acceptProxyProtocol": False, "header": {"type": "none"}}})
+
+# 备用节点：Hysteria2，走 UDP，和主节点共用 443 端口号。没有域名，用自签证书，
+# 客户端靠证书指纹（pin）只认这一张证书，不需要打开“跳过证书验证”
+pem = open(E["HY_CERT"]).read()
+pin = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest()
+hy_auth = secrets.token_urlsafe(16)
+try:
+    add_inbound("my-hy2", "hysteria",
+                {"version": 2, "clients": [client(auth=hy_auth, email="me-hy2", comment="")]},
+                {"network": "hysteria", "security": "tls",
+                 "hysteriaSettings": {"version": 2, "auth": "", "udpIdleTimeout": 60},
+                 "tlsSettings": {"serverName": E["HY_SNI"], "minVersion": "1.3", "maxVersion": "1.3", "cipherSuites": "",
+                                 "rejectUnknownSni": False, "disableSystemRoot": False, "enableSessionResumption": False,
+                                 "certificates": [{"certificateFile": E["HY_CERT"], "keyFile": E["HY_KEY"], "ocspStapling": 0,
+                                                   "oneTimeLoading": False, "usage": "encipherment", "buildChain": False}],
+                                 "alpn": ["h3"], "echServerKeys": "",
+                                 "settings": {"fingerprint": "", "echConfigList": "", "pinnedPeerCertSha256": [pin],
+                                              "verifyPeerCertByName": ""}}})
+except SystemExit as e:  # 备用节点建不成不影响主节点
+    print(f"Hysteria2 备用节点没建成，跳过（{e}）")
 
 if E["RES_IP"]:
     xray = json.loads(api("/panel/api/xray/"))["xraySetting"]
@@ -104,12 +151,27 @@ if E["RES_IP"]:
     api("/panel/api/xray/update", form={"xraySetting": json.dumps(xray)})
 api("/panel/api/server/restartXrayService", form={})
 
-link = api("/panel/api/inbounds/allLinks")[0]
+links = api("/panel/api/inbounds/allLinks")
+link = next(l for l in links if l.startswith("vless://"))
+hy_link = next((l for l in links if l.startswith("hysteria2://")), None)
 open("/root/vless.txt", "w").write(link + "\n")
+if hy_link:
+    open("/root/hy2.txt", "w").write(hy_link + "\n")
 
-# Clash 系（Clash Verge、FlClash、Clash Meta）不能直接粘贴 vless:// 链接，另外生成一份配置
+# Clash 系（Clash Verge、FlClash、Clash Meta）不能直接粘贴分享链接，另外生成一份配置
 u = urllib.parse.urlparse(link); q = dict(urllib.parse.parse_qsl(u.query))
 s = lambda v: json.dumps(v, ensure_ascii=False)  # JSON 字符串也是合法的 YAML 字符串，省去转义的麻烦
+hy2 = f"""
+  - name: {s("my-hy2")}
+    type: hysteria2
+    server: {s(E["IP"])}
+    port: {port}
+    password: {s(hy_auth)}
+    sni: {s(E["HY_SNI"])}
+    fingerprint: {s(pin)}
+    alpn: [h3]""" if hy_link else ""
+# 默认选中 Hysteria2：mihomo 连 Reality 的兼容性还没确认
+group = [s("my-hy2"), s("my-node")] if hy_link else [s("my-node")]
 open("/root/clash.yaml", "w").write(f"""proxies:
   - name: {s("my-node")}
     type: vless
@@ -124,11 +186,11 @@ open("/root/clash.yaml", "w").write(f"""proxies:
     client-fingerprint: {s(q.get("fp", "chrome"))}
     reality-opts:
       public-key: {s(q["pbk"])}
-      short-id: {s(q.get("sid", ""))}
+      short-id: {s(q.get("sid", ""))}{hy2}
 proxy-groups:
   - name: {s("节点选择")}
     type: select
-    proxies: [{s("my-node")}, DIRECT]
+    proxies: [{", ".join(group)}, DIRECT]
 rules:
   - GEOIP,LAN,DIRECT,no-resolve
   - GEOIP,CN,DIRECT
@@ -140,6 +202,7 @@ PY
 SSH_PORT=$(ss -tlnpH | awk '/sshd/ {sub(/.*:/, "", $4); print $4; exit}')
 ufw allow "${SSH_PORT:-22}"/tcp
 ufw allow "$PORT"/tcp
+ufw allow "$PORT"/udp
 ufw --force enable
 
 # ---- fail2ban：10 分钟内 SSH 密码输错 5 次，封这个 IP 1 小时 ----
@@ -178,30 +241,46 @@ echo "== BBR：$BBR =="
 # ---- 自测命令：服务器自己连自己的节点（Xray 自动更新也用它）----
 cat > /usr/local/bin/node-selftest <<'PY'
 #!/usr/bin/env python3
-# 服务器自己连自己的节点：通了退出码 0，不通 1；带 --ip 时再打印走节点的出口 IP
+# 服务器自己连自己的节点（Reality 和 Hysteria2 都测）：都通了退出码 0，否则 1；带 --ip 时再打印走节点的出口 IP
 import glob, json, os, subprocess, sys, tempfile, time, urllib.parse
-u = urllib.parse.urlparse(open("/root/vless.txt").read().strip()); q = dict(urllib.parse.parse_qsl(u.query))
-client = {"inbounds": [{"port": 10899, "listen": "127.0.0.1", "protocol": "socks"}],
-          "outbounds": [{"protocol": "vless", "settings": {"vnext": [{"address": "127.0.0.1", "port": u.port,
+def parse(path):
+    u = urllib.parse.urlparse(open(path).read().strip())
+    return u, dict(urllib.parse.parse_qsl(u.query))
+u, q = parse("/root/vless.txt")
+reality = {"tag": "reality", "protocol": "vless", "settings": {"vnext": [{"address": "127.0.0.1", "port": u.port,
               "users": [{"id": u.username, "encryption": "none", "flow": q.get("flow", "")}]}]},
-              "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {
-                  "serverName": q["sni"], "fingerprint": q.get("fp", "chrome"), "publicKey": q["pbk"],
-                  "shortId": q.get("sid", ""), "spiderX": q.get("spx", "")}}}]}
+           "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {
+               "serverName": q["sni"], "fingerprint": q.get("fp", "chrome"), "publicKey": q["pbk"],
+               "shortId": q.get("sid", ""), "spiderX": q.get("spx", "")}}}
+has_hy2 = os.path.exists("/root/hy2.txt")
+u, q = parse("/root/hy2.txt") if has_hy2 else (None, None)
+hy2 = None if not has_hy2 else {"tag": "hy2", "protocol": "hysteria", "settings": {"address": "127.0.0.1", "port": u.port, "version": 2},
+       "streamSettings": {"network": "hysteria", "security": "tls",
+           "hysteriaSettings": {"version": 2, "auth": urllib.parse.unquote(u.username), "udpIdleTimeout": 60},
+           "tlsSettings": {"serverName": q["sni"], "alpn": ["h3"], "pinnedPeerCertSha256": q["pinSHA256"]}}}
+client = {"inbounds": [{"tag": "in-reality", "port": 10899, "listen": "127.0.0.1", "protocol": "socks"},
+                       {"tag": "in-hy2", "port": 10898, "listen": "127.0.0.1", "protocol": "socks"}],
+          "outbounds": [o for o in (reality, hy2) if o],
+          "routing": {"rules": [{"type": "field", "inboundTag": ["in-reality"], "outboundTag": "reality"},
+                                {"type": "field", "inboundTag": ["in-hy2"], "outboundTag": "hy2"}][:2 if has_hy2 else 1]}}
 fd, cfg = tempfile.mkstemp(suffix=".json")
 with os.fdopen(fd, "w") as f:
     json.dump(client, f)
 xray = sorted(glob.glob("/usr/local/x-ui/bin/xray-linux-*"))[0]
 p = subprocess.Popen([xray, "run", "-c", cfg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(2)
-def via_node(url, fmt):
-    return subprocess.run(["curl", "-s", "-m", "15", "-x", "socks5h://127.0.0.1:10899", "-o", "/dev/null" if fmt else "-",
+def via(port, url, fmt):
+    return subprocess.run(["curl", "-s", "-m", "15", "-x", f"socks5h://127.0.0.1:{port}", "-o", "/dev/null" if fmt else "-",
                            "-w", fmt, url], capture_output=True, text=True).stdout.strip()
-ok = via_node("https://www.google.com/generate_204", "%{http_code}") == "204"
-print("== 节点自测：" + ("成功" if ok else "失败") + " ==")
-if ok and "--ip" in sys.argv:
-    print("== 走节点访问 ipinfo.io 的出口 IP：" + (via_node("https://ipinfo.io/ip", "") or "取不到") + " ==")
+results = []
+for name, port in [("Reality", 10899), ("Hysteria2", 10898)][:2 if has_hy2 else 1]:
+    ok = via(port, "https://www.google.com/generate_204", "%{http_code}") == "204"
+    results.append(ok)
+    print(f"== 节点自测 {name}：" + ("成功" if ok else "失败") + " ==")
+if results[0] and "--ip" in sys.argv:
+    print("== 走节点访问 ipinfo.io 的出口 IP：" + (via(10899, "https://ipinfo.io/ip", "") or "取不到") + " ==")
 p.terminate(); p.wait(); os.remove(cfg)
-sys.exit(0 if ok else 1)
+sys.exit(0 if all(results) else 1)
 PY
 chmod 755 /usr/local/bin/node-selftest
 sleep 3
@@ -266,11 +345,21 @@ systemctl enable --now xray-autoupdate.timer >/dev/null 2>&1 || true
 
 echo
 echo "===== 完成 ====="
-echo "节点链接（复制下面这行导入代理软件，也存在 /root/vless.txt）："
+echo "【主节点 Reality】复制下面这行导入代理软件（也存在 /root/vless.txt），手机可以直接扫码："
 cat /root/vless.txt
+qrencode -t ANSIUTF8 -m 2 < /root/vless.txt
 echo
+if [ -f /root/hy2.txt ]; then
+  echo "【备用节点 Hysteria2】主节点连不上或晚高峰很慢时用（也存在 /root/hy2.txt）："
+  cat /root/hy2.txt
+  qrencode -t ANSIUTF8 -m 2 < /root/hy2.txt
+  echo
+fi
 echo "用 Clash 系软件（Clash Verge、FlClash、Clash Meta）的：运行 cat /root/clash.yaml，复制全部内容，"
-echo "  在软件里新建一个本地配置，把内容粘贴进去保存"
+echo "  在软件里新建一个本地配置，把内容粘贴进去保存（两个节点都在里面）"
+echo "想再看二维码：qrencode -t ANSIUTF8 < /root/vless.txt"
+echo
+echo "商家后台有防火墙 / 安全组的话，放行 TCP 443 和 UDP 443"
 echo
 echo "BBR 网络优化：$BBR"
 echo "系统安全更新：已设为每天自动安装"
