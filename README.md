@@ -25,12 +25,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main
 5. fail2ban 防 SSH 暴力破解：10 分钟内输错 5 次密码封 1 小时
 6. 开启系统安全更新每天自动安装
 7. 开启 BBR 网络优化
-8. 服务器自己连自己的节点做一次自测
+8. Xray 内核每周日自动检查更新，更新后自测不通会自动退回旧版本
+9. 服务器自己连自己的节点做一次自测（之后随时可以运行 `node-selftest` 再测）
 
 ## 注意
 
 - 只支持 Debian / Ubuntu，只能在没装过 3x-ui 的服务器上运行
-- 3x-ui 和 Xray 不会自动更新，需要时运行 `x-ui` 用菜单更新
+- 3x-ui 面板本身不会自动更新，需要时运行 `x-ui` 用菜单更新
+- Xray 自动更新的记录：`journalctl -u xray-autoupdate`；想立刻检查一次：`xray-autoupdate`
 - 建议 SSH 改用密钥登录并关闭密码登录
 - 面板账号密码忘了：`cat /etc/x-ui/install-result.env`
 - 被 fail2ban 误封：换个网络连上去，运行 `fail2ban-client set sshd unbanip 你的IP`

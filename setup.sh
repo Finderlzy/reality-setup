@@ -147,30 +147,94 @@ else
 fi
 echo "== BBR：$BBR =="
 
-# ---- 自测：服务器自己连自己的节点 ----
-sleep 3
-export LINK=$(cat /root/vless.txt) XRAY=$(ls /usr/local/x-ui/bin/xray-linux-* | head -1)
-python3 - <<'PY'
-import json, os, subprocess, time, urllib.parse
-u = urllib.parse.urlparse(os.environ["LINK"]); q = dict(urllib.parse.parse_qsl(u.query))
+# ---- 自测命令：服务器自己连自己的节点（Xray 自动更新也用它）----
+cat > /usr/local/bin/node-selftest <<'PY'
+#!/usr/bin/env python3
+# 服务器自己连自己的节点：通了退出码 0，不通 1；带 --ip 时再打印走节点的出口 IP
+import glob, json, os, subprocess, sys, tempfile, time, urllib.parse
+u = urllib.parse.urlparse(open("/root/vless.txt").read().strip()); q = dict(urllib.parse.parse_qsl(u.query))
 client = {"inbounds": [{"port": 10899, "listen": "127.0.0.1", "protocol": "socks"}],
           "outbounds": [{"protocol": "vless", "settings": {"vnext": [{"address": "127.0.0.1", "port": u.port,
               "users": [{"id": u.username, "encryption": "none", "flow": q.get("flow", "")}]}]},
               "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {
                   "serverName": q["sni"], "fingerprint": q.get("fp", "chrome"), "publicKey": q["pbk"],
                   "shortId": q.get("sid", ""), "spiderX": q.get("spx", "")}}}]}
-json.dump(client, open("/root/selftest.json", "w"))
-p = subprocess.Popen([os.environ["XRAY"], "run", "-c", "/root/selftest.json"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+fd, cfg = tempfile.mkstemp(suffix=".json")
+with os.fdopen(fd, "w") as f:
+    json.dump(client, f)
+xray = sorted(glob.glob("/usr/local/x-ui/bin/xray-linux-*"))[0]
+p = subprocess.Popen([xray, "run", "-c", cfg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(2)
 def via_node(url, fmt):
     return subprocess.run(["curl", "-s", "-m", "15", "-x", "socks5h://127.0.0.1:10899", "-o", "/dev/null" if fmt else "-",
                            "-w", fmt, url], capture_output=True, text=True).stdout.strip()
 ok = via_node("https://www.google.com/generate_204", "%{http_code}") == "204"
 print("== 节点自测：" + ("成功" if ok else "失败") + " ==")
-if ok and os.environ.get("RES_IP"):
+if ok and "--ip" in sys.argv:
     print("== 走节点访问 ipinfo.io 的出口 IP：" + (via_node("https://ipinfo.io/ip", "") or "取不到") + " ==")
-p.terminate(); os.remove("/root/selftest.json")
+p.terminate(); p.wait(); os.remove(cfg)
+sys.exit(0 if ok else 1)
 PY
+chmod 755 /usr/local/bin/node-selftest
+sleep 3
+node-selftest ${RES_IP:+--ip} || true
+
+# ---- Xray 内核每周自动更新：更新后自测，不通就退回旧版本（3x-ui 面板本身不自动更新）----
+cat > /usr/local/bin/xray-autoupdate <<'EOF'
+#!/usr/bin/env bash
+# 检查 Xray 内核：有新版本就通过面板接口更新，更新后自测不通就退回旧版本
+set -uo pipefail
+. /etc/x-ui/install-result.env
+API="http://127.0.0.1:$XUI_PANEL_PORT/$XUI_WEB_BASE_PATH/panel/api/server"
+XRAY=$(ls /usr/local/x-ui/bin/xray-linux-* | head -1)
+CUR=v$("$XRAY" version | awk 'NR==1 {print $2}')
+# 版本列表和面板里“切换 Xray 版本”看到的一样（Xray 现在的新版本在 GitHub 上都标为预发布）
+NEW=$(curl -fsS -m 60 -H "Authorization: Bearer $XUI_API_TOKEN" "$API/getXrayVersion" \
+  | python3 -c 'import json, sys; print("\n".join(json.load(sys.stdin)["obj"]))' | sort -V | tail -1)
+[ -n "$NEW" ] || { echo "查不到最新版本，下次再试"; exit 0; }
+if [ "$(printf '%s\n%s\n' "$CUR" "$NEW" | sort -V | tail -1)" = "$CUR" ]; then echo "Xray $CUR 已是最新"; exit 0; fi
+
+echo "Xray $CUR -> $NEW"
+cp "$XRAY" /root/xray.bak
+RES=$(curl -s -m 600 -X POST -H "Authorization: Bearer $XUI_API_TOKEN" "$API/installXray/$NEW")
+sleep 3
+if node-selftest; then
+  if echo "$RES" | grep -q '"success":true'; then echo "更新成功：$NEW"; else echo "面板没有更新成功，仍是 $CUR：$RES"; fi
+  rm -f /root/xray.bak
+  exit 0
+fi
+
+echo "新版本自测不通，退回 $CUR"
+cp /root/xray.bak /usr/local/x-ui/bin/.xray-restore && mv -f /usr/local/x-ui/bin/.xray-restore "$XRAY"
+curl -s -m 60 -X POST -H "Authorization: Bearer $XUI_API_TOKEN" "$API/restartXrayService" >/dev/null
+sleep 3
+node-selftest
+exit 1
+EOF
+chmod 755 /usr/local/bin/xray-autoupdate
+cat > /etc/systemd/system/xray-autoupdate.service <<'EOF'
+[Unit]
+Description=Xray 内核自动更新（更新后自测，不通就回滚）
+After=network-online.target x-ui.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xray-autoupdate
+EOF
+cat > /etc/systemd/system/xray-autoupdate.timer <<'EOF'
+[Unit]
+Description=每周检查一次 Xray 内核新版本
+
+[Timer]
+OnCalendar=Sun 04:00
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now xray-autoupdate.timer >/dev/null 2>&1 || true
 
 echo
 echo "===== 完成 ====="
@@ -179,6 +243,7 @@ cat /root/vless.txt
 echo
 echo "BBR 网络优化：$BBR"
 echo "系统安全更新：已设为每天自动安装"
+echo "Xray 内核：每周日自动检查更新，更新后自测不通会自动退回旧版本（日志：journalctl -u xray-autoupdate）"
 echo "SSH 防爆破（fail2ban）：$F2B"
 echo "  自己被误封了：换个网络连上去，运行 fail2ban-client set sshd unbanip 你的IP"
 echo
