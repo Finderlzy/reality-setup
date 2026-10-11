@@ -20,6 +20,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.0
 
 按提示确认服务器 IP；有住宅代理就填它的 IP、端口、用户名、密码，没有就直接回车跳过。几分钟后看到 `节点自测：成功`，复制打印出来的 `vless://` 链接导入代理软件即可（链接也存在 `/root/vless.txt`）。
 
+Clash 系软件（Clash Verge、FlClash、Clash Meta）不能直接粘贴 `vless://` 链接。脚本另外生成了 `/root/clash.yaml`：运行 `cat /root/clash.yaml`，复制全部内容，在软件里新建一个本地配置粘贴进去即可。
+
 商家后台有防火墙 / 安全组的话，放行 **TCP 8555**。
 
 ## 脚本做了什么

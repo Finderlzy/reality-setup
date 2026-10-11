@@ -106,6 +106,34 @@ api("/panel/api/server/restartXrayService", form={})
 
 link = api("/panel/api/inbounds/allLinks")[0]
 open("/root/vless.txt", "w").write(link + "\n")
+
+# Clash 系（Clash Verge、FlClash、Clash Meta）不能直接粘贴 vless:// 链接，另外生成一份配置
+u = urllib.parse.urlparse(link); q = dict(urllib.parse.parse_qsl(u.query))
+s = lambda v: json.dumps(v, ensure_ascii=False)  # JSON 字符串也是合法的 YAML 字符串，省去转义的麻烦
+open("/root/clash.yaml", "w").write(f"""proxies:
+  - name: {s("my-node")}
+    type: vless
+    server: {s(E["IP"])}
+    port: {u.port}
+    uuid: {s(u.username)}
+    network: tcp
+    udp: true
+    tls: true
+    flow: {s(q.get("flow", ""))}
+    servername: {s(q["sni"])}
+    client-fingerprint: {s(q.get("fp", "chrome"))}
+    reality-opts:
+      public-key: {s(q["pbk"])}
+      short-id: {s(q.get("sid", ""))}
+proxy-groups:
+  - name: {s("节点选择")}
+    type: select
+    proxies: [{s("my-node")}, DIRECT]
+rules:
+  - GEOIP,LAN,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,节点选择
+""")
 PY
 
 # ---- 防火墙：放行 SSH 和节点端口 ----
@@ -240,6 +268,9 @@ echo
 echo "===== 完成 ====="
 echo "节点链接（复制下面这行导入代理软件，也存在 /root/vless.txt）："
 cat /root/vless.txt
+echo
+echo "用 Clash 系软件（Clash Verge、FlClash、Clash Meta）的：运行 cat /root/clash.yaml，复制全部内容，"
+echo "  在软件里新建一个本地配置，把内容粘贴进去保存"
 echo
 echo "BBR 网络优化：$BBR"
 echo "系统安全更新：已设为每天自动安装"
