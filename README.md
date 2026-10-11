@@ -15,7 +15,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main
 想固定用某个版本（不跟随 `main` 的最新改动），把链接里的 `main` 换成版本号，所有版本见[版本列表](https://github.com/Finderlzy/reality-setup/tags)：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.0.0/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.1.0/setup.sh)
 ```
 
 按提示确认服务器 IP；有住宅代理就填它的 IP、端口、用户名、密码，没有就直接回车跳过。几分钟后看到 `节点自测 Reality：成功` 和 `节点自测 Hysteria2：成功`，最后会打印两个节点：
