@@ -3,12 +3,31 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
+VERSION=v1.2.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
+# 面板固定账号，方便排查（面板只监听本机，外网访问不到，只能走 SSH 隧道）
+PANEL_PATH=panel PANEL_USER=admin PANEL_PASS=123456
 
 if [ "$(id -u)" -ne 0 ]; then echo "请用 root 用户运行"; exit 1; fi
-if [ -e /etc/x-ui ]; then echo "这台服务器装过 3x-ui，请换一台全新的 VPS"; exit 1; fi
+
+# ---- 装过的服务器：确认后删掉旧的（3x-ui 面板和之前各版本脚本装的东西），再往下重新装 ----
+if [ -e /etc/x-ui ]; then
+  OLD=$(cat /etc/reality-setup/version 2>/dev/null || echo "v1.1.0 或更早")
+  if [ -e /root/vless.txt ]; then echo "这台服务器用本脚本装过（版本：$OLD）。"
+  else echo "这台服务器装过 3x-ui 面板（不是本脚本装的），面板里所有节点和设置都会被删掉。"; fi
+  read -rp "删掉旧的重新装吗？装完旧节点链接会失效，客户端要重新导入 [y/N]: " ANS
+  [ "$ANS" = y ] || [ "$ANS" = Y ] || { echo "已取消，什么都没动"; exit 1; }
+  systemctl disable --now x-ui xray-autoupdate.timer >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/x-ui.service /etc/systemd/system/xray-autoupdate.service /etc/systemd/system/xray-autoupdate.timer
+  systemctl daemon-reload
+  rm -rf /etc/x-ui /usr/local/x-ui /etc/default/x-ui /usr/bin/x-ui /etc/reality-setup \
+    /usr/local/bin/node-selftest /usr/local/bin/xray-autoupdate \
+    /root/vless.txt /root/hy2.txt /root/clash.yaml /root/xray.bak /root/cert/hy2.crt /root/cert/hy2.key
+  if command -v ufw >/dev/null; then ufw --force delete allow 8555/tcp >/dev/null 2>&1 || true; fi  # v1.0.0 及更早用的节点端口
+  echo "== 旧的已删除，开始重新安装 =="
+fi
 
 DETECTED=$(curl -s4 -m 10 https://api.ipify.org || true)
 read -rp "服务器 IP 是 ${DETECTED:-（没检测到）} 吗？对就直接回车，不对就输入你 SSH 连接用的 IP: " IP
@@ -40,7 +59,7 @@ if [ -n "$RES_IP" ]; then
 fi
 
 # ---- 安装 3x-ui（面板只监听本机，用 SSH 隧道访问）----
-XUI_NONINTERACTIVE=1 XUI_PANEL_PORT=$PANEL_PORT XUI_SSL_MODE=none XUI_SERVER_IP=$IP XUI_ENABLE_FAIL2BAN=false \
+XUI_NONINTERACTIVE=1 XUI_PANEL_PORT=$PANEL_PORT XUI_WEB_BASE_PATH=$PANEL_PATH XUI_USERNAME=$PANEL_USER XUI_PASSWORD=$PANEL_PASS XUI_SSL_MODE=none XUI_SERVER_IP=$IP XUI_ENABLE_FAIL2BAN=false \
   bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.9.0/install.sh) v3.9.0 </dev/null
 /usr/local/x-ui/x-ui setting -listenIP 127.0.0.1 >/dev/null
 systemctl restart x-ui
@@ -96,6 +115,14 @@ ms, host, scan = best
 target = host + ":443"
 print(f"伪装网站：{host}（握手 {ms:.0f} ms）")
 
+# 节点名用服务器 IP 所在地，比如“美国 洛杉矶（主节点）”；查不到就只写“主节点”
+try:
+    geo = json.load(urllib.request.urlopen(f"http://ip-api.com/json/{E['IP']}?lang=zh-CN&fields=status,country,city", timeout=10))
+    place = " ".join(dict.fromkeys(v for v in (geo.get("country"), geo.get("city")) if v)) if geo.get("status") == "success" else ""
+except Exception:
+    place = ""
+MAIN_NAME, HY_NAME = f"{place}（主节点）", f"{place}（备用节点）"
+
 port = int(E["PORT"])
 sniffing = json.dumps({"enabled": True, "destOverride": ["http", "tls", "quic"], "metadataOnly": False, "routeOnly": True})
 def add_inbound(remark, protocol, settings, stream):
@@ -111,7 +138,7 @@ def client(**kw):
 # 主节点：VLESS + Reality，走 TCP
 keys = api("/panel/api/server/getNewX25519Cert")
 uuid = api("/panel/api/server/getNewUUID")["uuid"]
-add_inbound("my-node", "vless",
+add_inbound(MAIN_NAME, "vless",
             {"clients": [client(id=uuid, flow="xtls-rprx-vision", email="me")], "decryption": "none", "fallbacks": []},
             {"network": "tcp", "security": "reality",
              "realitySettings": {"show": False, "xver": 0, "target": target, "serverNames": scan["serverNames"],
@@ -127,7 +154,7 @@ pem = open(E["HY_CERT"]).read()
 pin = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest()
 hy_auth = secrets.token_urlsafe(16)
 try:
-    add_inbound("my-hy2", "hysteria",
+    add_inbound(HY_NAME, "hysteria",
                 {"version": 2, "clients": [client(auth=hy_auth, email="me-hy2", comment="")]},
                 {"network": "hysteria", "security": "tls",
                  "hysteriaSettings": {"version": 2, "auth": "", "udpIdleTimeout": 60},
@@ -152,8 +179,10 @@ if E["RES_IP"]:
 api("/panel/api/server/restartXrayService", form={})
 
 links = api("/panel/api/inbounds/allLinks")
-link = next(l for l in links if l.startswith("vless://"))
-hy_link = next((l for l in links if l.startswith("hysteria2://")), None)
+# 面板生成的链接名是“入站名-客户端名”，换成上面定好的节点名
+rename = lambda l, name: l.split("#")[0] + "#" + urllib.parse.quote(name)
+link = rename(next(l for l in links if l.startswith("vless://")), MAIN_NAME)
+hy_link = next((rename(l, HY_NAME) for l in links if l.startswith("hysteria2://")), None)
 open("/root/vless.txt", "w").write(link + "\n")
 if hy_link:
     open("/root/hy2.txt", "w").write(hy_link + "\n")
@@ -162,7 +191,7 @@ if hy_link:
 u = urllib.parse.urlparse(link); q = dict(urllib.parse.parse_qsl(u.query))
 s = lambda v: json.dumps(v, ensure_ascii=False)  # JSON 字符串也是合法的 YAML 字符串，省去转义的麻烦
 hy2 = f"""
-  - name: {s("my-hy2")}
+  - name: {s(HY_NAME)}
     type: hysteria2
     server: {s(E["IP"])}
     port: {port}
@@ -171,9 +200,9 @@ hy2 = f"""
     fingerprint: {s(pin)}
     alpn: [h3]""" if hy_link else ""
 # 默认选中 Hysteria2：mihomo 连 Reality 的兼容性还没确认
-group = [s("my-hy2"), s("my-node")] if hy_link else [s("my-node")]
+group = [s(HY_NAME), s(MAIN_NAME)] if hy_link else [s(MAIN_NAME)]
 open("/root/clash.yaml", "w").write(f"""proxies:
-  - name: {s("my-node")}
+  - name: {s(MAIN_NAME)}
     type: vless
     server: {s(E["IP"])}
     port: {u.port}
@@ -343,8 +372,10 @@ EOF
 systemctl daemon-reload
 systemctl enable --now xray-autoupdate.timer >/dev/null 2>&1 || true
 
+mkdir -p /etc/reality-setup && echo "$VERSION" > /etc/reality-setup/version
+
 echo
-echo "===== 完成 ====="
+echo "===== 完成（版本 $VERSION）====="
 echo "【主节点 Reality】复制下面这行导入代理软件（也存在 /root/vless.txt），手机可以直接扫码："
 cat /root/vless.txt
 qrencode -t ANSIUTF8 -m 2 < /root/vless.txt

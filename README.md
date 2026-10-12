@@ -15,10 +15,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main
 想固定用某个版本（不跟随 `main` 的最新改动），把链接里的 `main` 换成版本号，所有版本见[版本列表](https://github.com/Finderlzy/reality-setup/tags)：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.1.0/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.2.0/setup.sh)
 ```
 
-按提示确认服务器 IP；有住宅代理就填它的 IP、端口、用户名、密码，没有就直接回车跳过。几分钟后看到 `节点自测 Reality：成功` 和 `节点自测 Hysteria2：成功`，最后会打印两个节点：
+按提示确认服务器 IP；有住宅代理就填它的 IP、端口、用户名、密码，没有就直接回车跳过。几分钟后看到 `节点自测 Reality：成功` 和 `节点自测 Hysteria2：成功`，最后会打印两个节点，节点名是服务器所在地，比如 `美国 洛杉矶（主节点）`：
 
 | 节点 | 用途 | 链接保存在 |
 |---|---|---|
@@ -29,6 +29,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.1
 - **Clash 系（Clash Verge、FlClash、Clash Meta）**：不能直接粘贴分享链接。运行 `cat /root/clash.yaml`，复制全部内容，在软件里新建一个本地配置粘贴进去。两个节点都在里面，默认选中 Hysteria2（见下方「已知问题」）
 
 商家后台有防火墙 / 安全组的话，放行 **TCP 443 和 UDP 443**。
+
+## 已经装过，想换成新版本
+
+运行同一条命令。脚本发现装过会先问你，回答 `y` 就删掉旧的（面板、节点、自动更新任务等）重新装。重装后节点链接会变，客户端要重新导入。
+
+每个版本改了什么、装过的要不要重装，见 [CHANGELOG](CHANGELOG.md)。看服务器装的是哪个版本：`cat /etc/reality-setup/version`（v1.1.0 及更早的版本没有这个文件）。
 
 ## 脚本做了什么
 
@@ -49,7 +55,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.1
 - 3x-ui 面板本身不会自动更新，需要时运行 `x-ui` 用菜单更新
 - Xray 自动更新的记录：`journalctl -u xray-autoupdate`；想立刻检查一次：`xray-autoupdate`
 - 建议 SSH 改用密钥登录并关闭密码登录
-- 面板账号密码忘了：`cat /etc/x-ui/install-result.env`
+- 面板（排查用）：在自己电脑上运行 `ssh -L 8080:127.0.0.1:8080 root@服务器IP`，浏览器打开 `http://127.0.0.1:8080/panel`，用户名 `admin`，密码 `123456`。面板只监听本机，外网访问不到，所以用了好记的固定账号
 - 被 fail2ban 误封：换个网络连上去，运行 `fail2ban-client set sshd unbanip 你的IP`
 
 ## 已知问题
