@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-VERSION=v1.2.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v1.2.1     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
@@ -12,21 +12,23 @@ PANEL_PATH=panel PANEL_USER=admin PANEL_PASS=123456
 
 if [ "$(id -u)" -ne 0 ]; then echo "请用 root 用户运行"; exit 1; fi
 
-# ---- 装过的服务器：确认后删掉旧的（3x-ui 面板和之前各版本脚本装的东西），再往下重新装 ----
+# ---- 装过的服务器：先确认（真正删除放在所有问题问完之后）----
+REINSTALL=
 if [ -e /etc/x-ui ]; then
+  # SSH 是经这台服务器上的节点连进来的（电脑开着代理 / TUN 模式），源地址会是本机自己的地址，
+  # 一停旧节点 SSH 就断，脚本跟着被杀，服务器停在删了一半的状态
+  SSH_SRC=${SSH_CLIENT%% *}
+  if [ -n "$SSH_SRC" ] && { [ "$SSH_SRC" = 127.0.0.1 ] || [ "$SSH_SRC" = ::1 ] || ip -o addr | awk '{sub(/\/.*/, "", $4); print $4}' | grep -qxF "$SSH_SRC"; }; then
+    echo "你现在的 SSH 是通过这台服务器上的节点连进来的，删旧节点时 SSH 会断开、重装会中途失败。"
+    echo "请先关掉电脑上的代理软件（或把 TUN / 全局模式关掉），重新 SSH 连上再运行。"
+    exit 1
+  fi
   OLD=$(cat /etc/reality-setup/version 2>/dev/null || echo "v1.1.0 或更早")
   if [ -e /root/vless.txt ]; then echo "这台服务器用本脚本装过（版本：$OLD）。"
   else echo "这台服务器装过 3x-ui 面板（不是本脚本装的），面板里所有节点和设置都会被删掉。"; fi
   read -rp "删掉旧的重新装吗？装完旧节点链接会失效，客户端要重新导入 [y/N]: " ANS
   [ "$ANS" = y ] || [ "$ANS" = Y ] || { echo "已取消，什么都没动"; exit 1; }
-  systemctl disable --now x-ui xray-autoupdate.timer >/dev/null 2>&1 || true
-  rm -f /etc/systemd/system/x-ui.service /etc/systemd/system/xray-autoupdate.service /etc/systemd/system/xray-autoupdate.timer
-  systemctl daemon-reload
-  rm -rf /etc/x-ui /usr/local/x-ui /etc/default/x-ui /usr/bin/x-ui /etc/reality-setup \
-    /usr/local/bin/node-selftest /usr/local/bin/xray-autoupdate \
-    /root/vless.txt /root/hy2.txt /root/clash.yaml /root/xray.bak /root/cert/hy2.crt /root/cert/hy2.key
-  if command -v ufw >/dev/null; then ufw --force delete allow 8555/tcp >/dev/null 2>&1 || true; fi  # v1.0.0 及更早用的节点端口
-  echo "== 旧的已删除，开始重新安装 =="
+  REINSTALL=1
 fi
 
 DETECTED=$(curl -s4 -m 10 https://api.ipify.org || true)
@@ -39,6 +41,17 @@ if [ -n "$RES_IP" ]; then
   read -rp "住宅代理密码: " RES_PASS
 fi
 if [ -z "$IP" ]; then echo "服务器 IP 不能为空"; exit 1; fi
+
+if [ -n "$REINSTALL" ]; then
+  systemctl disable --now x-ui xray-autoupdate.timer >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/x-ui.service /etc/systemd/system/xray-autoupdate.service /etc/systemd/system/xray-autoupdate.timer
+  systemctl daemon-reload
+  rm -rf /etc/x-ui /usr/local/x-ui /etc/default/x-ui /usr/bin/x-ui /etc/reality-setup \
+    /usr/local/bin/node-selftest /usr/local/bin/xray-autoupdate \
+    /root/vless.txt /root/hy2.txt /root/clash.yaml /root/xray.bak /root/cert/hy2.crt /root/cert/hy2.key
+  if command -v ufw >/dev/null; then ufw --force delete allow 8555/tcp >/dev/null 2>&1 || true; fi  # v1.0.0 及更早用的节点端口
+  echo "== 旧的已删除，开始重新安装 =="
+fi
 
 apt update
 apt install -y curl openssl ufw python3 unattended-upgrades fail2ban python3-systemd qrencode

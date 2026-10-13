@@ -15,7 +15,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main
 想固定用某个版本（不跟随 `main` 的最新改动），把链接里的 `main` 换成版本号，所有版本见[版本列表](https://github.com/Finderlzy/reality-setup/tags)：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.2.0/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.2.1/setup.sh)
 ```
 
 按提示确认服务器 IP；有住宅代理就填它的 IP、端口、用户名、密码，没有就直接回车跳过。几分钟后看到 `节点自测 Reality：成功` 和 `节点自测 Hysteria2：成功`，最后会打印两个节点，节点名是服务器所在地，比如 `美国 洛杉矶（主节点）`（查不到所在地就只写 `（主节点）`）：
@@ -35,6 +35,8 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 ## 已经装过，想换成新版本
 
 运行同一条命令。脚本发现装过会先问你，回答 `y` 就删掉旧的（面板、节点、自动更新任务等）重新装，回答其他的什么都不动。如果面板不是本脚本装的，面板里你自己建的所有节点和设置也会一起删掉。重装后节点链接会变，客户端要重新导入。
+
+**重装前先关掉电脑上的代理软件（或关掉 TUN / 全局模式）再 SSH 连服务器。** 如果 SSH 是走这台服务器上的节点连进去的，删旧节点时 SSH 会跟着断；脚本会检查出这种情况并提示你，不会往下删。安装途中 SSH 因为别的原因断了，重新连上再运行一次同一条命令就行。
 
 每个版本改了什么、装过的要不要重装，见 [CHANGELOG](CHANGELOG.md)。看服务器装的是哪个版本：`cat /etc/reality-setup/version`（v1.1.0 及更早的版本没有这个文件）。
 
