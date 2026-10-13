@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-VERSION=v1.2.1     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v1.2.2     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
@@ -11,6 +11,12 @@ PANEL_PORT=8080
 PANEL_PATH=panel PANEL_USER=admin PANEL_PASS=123456
 
 if [ "$(id -u)" -ne 0 ]; then echo "请用 root 用户运行"; exit 1; fi
+if ! command -v apt-get >/dev/null; then
+  OS=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || true)
+  echo "本脚本只支持 Debian / Ubuntu，这台服务器是 ${OS:-其他系统}。"
+  echo "请在 VPS 商家后台把系统重装成 Debian 12（或 Ubuntu 22.04 / 24.04），再运行同一条命令。"
+  exit 1
+fi
 
 # ---- 装过的服务器：先确认（真正删除放在所有问题问完之后）----
 REINSTALL=
