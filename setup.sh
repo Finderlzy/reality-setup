@@ -17,6 +17,12 @@ if ! command -v apt-get >/dev/null; then
   echo "请在 VPS 商家后台把系统重装成 Debian 12（或 Ubuntu 22.04 / 24.04），再运行同一条命令。"
   exit 1
 fi
+# 新的分步脚本（install-xray.sh）装的服务器：本脚本不认识它的 Xray，重装会和它抢 443 端口
+if [ -e /etc/reality-setup/mode ]; then
+  echo "这台服务器是用新的分步脚本（install-xray.sh）装的，不能再用旧的 setup.sh。"
+  echo "要重装请运行：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/install-xray.sh)"
+  exit 1
+fi
 
 # ---- 装过的服务器：先确认（真正删除放在所有问题问完之后）----
 REINSTALL=
