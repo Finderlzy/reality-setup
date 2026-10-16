@@ -5,7 +5,7 @@ set -euo pipefail
 # 主节点 VLESS + Reality（TCP 443），备用节点 Hysteria2（UDP 443）；不装面板
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/install-xray.sh)
 # 之后可选：add-isp-proxy.sh（给节点套住宅 IP）、install-panel.sh（装 3x-ui 面板排查问题）
-VERSION=v1.3.0       # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v2.0.0       # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443             # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 XRAY_CONF=/usr/local/etc/xray/config.json
