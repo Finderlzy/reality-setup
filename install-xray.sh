@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 第一步：在全新的 Debian / Ubuntu 服务器上安装 Xray，把服务器变成节点
+# 第一步：在全新的 Debian 服务器上安装 Xray，把服务器变成节点
 # 主节点 VLESS + Reality（TCP 443），备用节点 Hysteria2（UDP 443）；不装面板
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/install-xray.sh)
-# 之后可选：add-isp-proxy.sh（给 claude 相关网站套住宅 IP）、install-panel.sh（装 3x-ui 面板排查问题）
+# 之后可选：add-isp-proxy.sh（给节点套住宅 IP）、install-panel.sh（装 3x-ui 面板排查问题）
 VERSION=v1.3.0       # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443             # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
@@ -14,8 +14,8 @@ HY_CERT=/root/cert/hy2.crt HY_KEY=/root/cert/hy2.key
 if [ "$(id -u)" -ne 0 ]; then echo "请用 root 用户运行"; exit 1; fi
 if ! command -v apt-get >/dev/null; then
   OS=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || true)
-  echo "本脚本只支持 Debian / Ubuntu，这台服务器是 ${OS:-其他系统}。"
-  echo "请在 VPS 商家后台把系统重装成 Debian 12（或 Ubuntu 22.04 / 24.04），再运行同一条命令。"
+  echo "本脚本只支持 Debian，这台服务器是 ${OS:-其他系统}。"
+  echo "请在 VPS 商家后台把系统重装成 Debian 12，再运行同一条命令。"
   exit 1
 fi
 

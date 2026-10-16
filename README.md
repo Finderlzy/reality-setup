@@ -5,7 +5,7 @@
 | 步骤 | 脚本 | 做什么 |
 |---|---|---|
 | 1. 把服务器变成节点 | `install-xray.sh` | 安装 Xray，建好节点，自测后打印节点链接 |
-| 2. 加住宅 IP（可选） | `add-isp-proxy.sh` | 只让 claude 相关的网站走住宅 / ISP 代理，其他网站照旧从服务器出去 |
+| 2. 加住宅 IP（可选） | `add-isp-proxy.sh` | 给节点套住宅 / ISP 代理，运行时选只让 claude 相关的网站走，还是所有网站都走 |
 | 3. 装面板（可选） | `install-panel.sh` | 安装 3x-ui 面板用来排查问题，节点原样交给面板管理，链接不变 |
 
 第 2、3 步都要求先跑过第 1 步，两者先后随意。
@@ -16,7 +16,7 @@
 
 ## 第 1 步：把服务器变成节点
 
-用 root 登录一台**全新**的 Debian / Ubuntu 服务器，运行：
+用 root 登录一台**全新**的 Debian 12 服务器，运行：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/install-xray.sh)
@@ -38,15 +38,20 @@ Hysteria2 万一建不成（这个版本的 Xray 不接受、UDP 443 被占用�
 
 节点链接就像钥匙，谁拿到谁就能用你的节点，不要发给别人。商家后台有防火墙 / 安全组的话，放行 **TCP 443 和 UDP 443**。
 
-## 第 2 步（可选）：只让 claude 相关的网站走住宅 IP
+## 第 2 步（可选）：给节点套住宅 IP
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/add-isp-proxy.sh)
 ```
 
-填住宅 / ISP 代理的 IP、端口、用户名、密码（只支持 SOCKS5；没有用户名就直接回车）。脚本先测代理能不能连上，不通就什么都不改；通了再给 Xray 加一个住宅出站，只让 Anthropic 相关域名（`geosite:anthropic`，包括 claude.ai、anthropic.com 等）和用来查出口 IP 的 `ipinfo.io` 走住宅 IP。改完自测，成功时会打印 `住宅 IP 加好了`，并分别列出 claude 相关网站和其他网站的出口 IP；改完节点连不上就自动退回原来的设置。
+填住宅 / ISP 代理的 IP、端口、用户名、密码（只支持 SOCKS5；没有用户名就直接回车），再选哪些网站走住宅 IP：
 
-节点链接不变，不用重新导入。想换别的住宅代理，再运行一次同一条命令，旧的会被替换。用旧的 `setup.sh` 装的服务器也能运行这一步。
+- **1（默认）**：只让 Anthropic 相关域名（`geosite:anthropic`，包括 claude.ai、anthropic.com 等）和用来查出口 IP 的 `ipinfo.io` 走住宅 IP，其他网站照旧从服务器出去
+- **2**：所有网站都走住宅 IP（路由规则放在最后，局域网地址和 BT 下载仍然直接拦掉）
+
+脚本先测代理能不能连上，不通就什么都不改；通了再给 Xray 加一个住宅出站和对应的路由规则。改完自测，成功时会打印 `住宅 IP 加好了`，并列出出口 IP；改完节点连不上就自动退回原来的设置。装了面板的，改的是面板里的 Xray 设置。
+
+节点链接不变，不用重新导入。想换别的住宅代理，或者改选走住宅 IP 的范围，再运行一次同一条命令，旧的会被替换。用旧的 `setup.sh` 装的服务器也能运行这一步。
 
 ## 第 3 步（可选）：装 3x-ui 面板排查问题
 
@@ -82,7 +87,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main
 
 ## 注意
 
-- 只支持 Debian / Ubuntu，x86_64 或 arm64
+- 只支持 Debian 12，x86_64 或 arm64
 - Xray 自动更新的记录：`journalctl -u xray-autoupdate`；想立刻检查一次：`xray-autoupdate`
 - 建议 SSH 改用密钥登录并关闭密码登录
 - 被 fail2ban 误封：换个网络连上去，运行 `fail2ban-client set sshd unbanip 你的IP`

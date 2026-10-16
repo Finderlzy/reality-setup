@@ -14,8 +14,8 @@ XRAY_CONF=/usr/local/etc/xray/config.json
 if [ "$(id -u)" -ne 0 ]; then echo "请用 root 用户运行"; exit 1; fi
 if ! command -v apt-get >/dev/null; then
   OS=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || true)
-  echo "本脚本只支持 Debian / Ubuntu，这台服务器是 ${OS:-其他系统}。"
-  echo "请在 VPS 商家后台把系统重装成 Debian 12（或 Ubuntu 22.04 / 24.04），再按教程从装 Xray 那一步开始。"
+  echo "本脚本只支持 Debian，这台服务器是 ${OS:-其他系统}。"
+  echo "请在 VPS 商家后台把系统重装成 Debian 12，再按教程从装 Xray 那一步开始。"
   exit 1
 fi
 
@@ -177,7 +177,11 @@ if res_out:
     x = json.loads(api("/panel/api/xray/"))["xraySetting"]
     x["outbounds"] = [o for o in x["outbounds"] if o.get("tag") != "residential"] + res_out
     rules = [r for r in conf["routing"]["rules"] if r.get("outboundTag") == "residential"]
-    x["routing"]["rules"][1:1] = rules  # 第 0 条是面板自己的接口规则
+    x["routing"]["rules"] = [r for r in x["routing"]["rules"] if r.get("outboundTag") != "residential"]
+    # 只让 claude 相关网站走的规则放在最前面（第 0 条是面板自己的接口规则）；所有网站都走的规则放在最后，
+    # 排在“局域网地址、BT 下载直接拦掉”这些规则后面
+    x["routing"]["rules"][1:1] = [r for r in rules if "domain" in r]
+    x["routing"]["rules"] += [r for r in rules if "domain" not in r]
     api("/panel/api/xray/update", form={"xraySetting": json.dumps(x)})
     print("住宅代理已交给面板")
 api("/panel/api/server/restartXrayService", form={})

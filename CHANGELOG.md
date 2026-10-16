@@ -8,6 +8,8 @@
   - `install-xray.sh`：只装 Xray 并建好节点（Reality + Hysteria2），不再装面板；节点由 `xray.service` 直接运行，配置在 `/usr/local/etc/xray/config.json`。防火墙、fail2ban、自动安全更新、BBR、Xray 每周自动更新与回滚、重装检测都在这一步
   - `add-isp-proxy.sh`：给节点加住宅 / ISP 代理，只让 claude 相关的网站走住宅 IP；先测代理再改，改完自测不通自动退回；可重复运行替换；没有用户名的代理（IP 白名单认证）也支持
   - `install-panel.sh`：装 3x-ui v3.9.0 面板，把节点原样交给面板管理（链接不变），交接后自测不通自动退回
+- `add-isp-proxy.sh` 让用户选哪些网站走住宅 IP：只有 claude 相关的网站（默认），或者所有网站；再运行一次可以改选
+- 提示里的系统只推荐 Debian 12，不再推荐 Ubuntu（脚本仍然能在 Ubuntu 上跑，但没有测试过）
 - 提示文字改成和教程一致的说法：分“安装 Xray → 自测 → 打印节点链接”三步，结束时提醒把链接导入代理软件、不要发给别人。`节点自测 Reality：成功` 这类自测结果原样保留，另加一行 `自测通过：节点能用`
 - `node-selftest --ip` 多打印一行走节点访问其他网站的出口 IP，方便对比住宅 IP 是否只用在 claude 相关网站
 - 修复：直接在服务器控制台（没有 SSH）运行重装时，`SSH_CLIENT` 未定义导致脚本报错退出
