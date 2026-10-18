@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-VERSION=v1.4.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v1.5.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
@@ -51,6 +51,25 @@ if [ -n "$RES_IP" ]; then
 fi
 if [ -z "$IP" ]; then echo "服务器 IP 不能为空"; exit 1; fi
 
+# ---- Debian 11：问要不要顺便原地升级到 Debian 12（11 官方已停止支持，没有安全更新了）----
+UPGRADE= NO_UPGRADE_WHY=
+if [ "${OS_CODE:-}" = bullseye ]; then
+  VIRT=$(systemd-detect-virt 2>/dev/null || true)
+  FREE_KB=$(df -Pk / | awk 'NR==2 {print $4}')
+  case $VIRT in
+    openvz|lxc|lxc-libvirt|systemd-nspawn|docker|podman)
+      # 容器类 VPS 的内核由商家管，升级后可能开不了机
+      NO_UPGRADE_WHY="这是容器类 VPS（$VIRT），没法安全地升级系统，只能请商家换成 Debian 12" ;;
+    *)
+      if [ "${FREE_KB:-0}" -lt 2000000 ]; then
+        NO_UPGRADE_WHY="硬盘剩余空间不到 2 GB，不够升级系统"
+      else
+        read -rp "这台是 Debian 11，官方已停止支持。顺便升级到 Debian 12 吗？多花 5～15 分钟，节点照样装 [Y/n]: " ANS
+        case $ANS in n|N) NO_UPGRADE_WHY="你选了不升级" ;; *) UPGRADE=1 ;; esac
+      fi ;;
+  esac
+fi
+
 if [ -n "$REINSTALL" ]; then
   systemctl disable --now x-ui xray-autoupdate.timer >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/x-ui.service /etc/systemd/system/xray-autoupdate.service /etc/systemd/system/xray-autoupdate.timer
@@ -82,6 +101,32 @@ if [ "${OS_VER:-99}" -le 11 ] 2>/dev/null && [ -n "${OS_CODE:-}" ]; then
     "deb [check-valid-until=no] http://archive.debian.org/debian-security $SEC main contrib non-free" \
     > /etc/apt/sources.list
   echo "== Debian $OS_VER 官方已停止支持，软件源已换成存档源 archive.debian.org（原来的备份在 /etc/apt/sources.list.bak-reality-setup）=="
+fi
+
+# ---- 原地升级到 Debian 12：先把 11 更新到最新（旧系统的软件源钥匙里没有 12 的，直接换源会报 NO_PUBKEY），再换源升级 ----
+# 不弹任何对话框；改过的配置文件一律保留现在的（比如 sshd_config 里改过的 SSH 端口）；下载断了自动重试，存档站偶尔连不上
+apt_auto() {
+  DEBIAN_FRONTEND=noninteractive APT_LISTCHANGES_FRONTEND=none NEEDRESTART_MODE=a \
+    apt-get -y -o Acquire::Retries=5 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@"
+}
+if [ -n "$UPGRADE" ]; then
+  echo "== 升级到 Debian 12（1/2）：先把 Debian 11 更新到最新 =="
+  dpkg --configure -a  # 上次升级中途断了的话，先把没装完的包装完
+  apt_auto update
+  apt_auto full-upgrade
+  cat > /etc/apt/sources.list <<'EOF'
+deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+EOF
+  echo "== 升级到 Debian 12（2/2）：换成 Debian 12 的软件源并升级，大约 5～15 分钟，别关窗口 =="
+  apt_auto update
+  apt_auto upgrade --without-new-pkgs  # 官方建议先做一遍不装新包的升级，再做完整升级
+  apt_auto full-upgrade
+  apt_auto autoremove
+  read -r OS_ID OS_VER OS_CODE < <(. /etc/os-release; echo "$ID $VERSION_ID $VERSION_CODENAME")
+  OLD_DEBIAN=
+  echo "== 系统已升级到 Debian $OS_VER，接着装节点 =="
 fi
 
 apt update
@@ -451,10 +496,15 @@ echo "  1. 在自己电脑上运行：ssh -L $PANEL_PORT:127.0.0.1:$PANEL_PORT r
 echo "  2. 浏览器打开：http://127.0.0.1:$PANEL_PORT/$XUI_WEB_BASE_PATH"
 echo "  3. 用户名：$XUI_USERNAME  密码：$XUI_PASSWORD"
 echo "  忘了的话运行：cat /etc/x-ui/install-result.env"
-if [ -n "$OLD_DEBIAN" ] && [ "$OLD_DEBIAN" = bullseye ]; then
+if [ -n "$UPGRADE" ]; then
   echo
-  echo "建议把系统原地升级到 Debian 12（节点不受影响，升级后重新有安全更新），步骤见："
-  echo "  https://github.com/Finderlzy/reality-setup#debian-11-原地升级到-12"
+  echo "系统已从 Debian 11 升级到 Debian $OS_VER。找个方便的时候重启一次，让新内核生效（节点会自动起来）：reboot"
+elif [ "$OLD_DEBIAN" = bullseye ]; then
+  echo
+  echo "这次没有升级到 Debian 12（$NO_UPGRADE_WHY）。"
+  if [ "$NO_UPGRADE_WHY" = "你选了不升级" ]; then
+    echo "  想升级了，按这里的步骤手动升级（节点不受影响）：https://github.com/Finderlzy/reality-setup#debian-11-原地升级到-12"
+  fi
 elif [ -n "$OLD_DEBIAN" ]; then
   echo
   echo "这个系统太旧了，原地升级要一个版本一个版本升，建议在商家后台重装成 Debian 12"
