@@ -6,7 +6,7 @@
 
 ## 用法
 
-用 root 登录一台**全新**的 Debian / Ubuntu 服务器，运行：
+用 root 登录一台**全新**的 Debian 服务器（建议 Debian 12），运行：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
@@ -55,7 +55,7 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 
 ## 注意
 
-- 只支持 Debian / Ubuntu。建议用全新的服务器；装过 3x-ui 的服务器也能运行，但会先删掉旧面板（见上方「已经装过，想换成新版本」）
+- 只支持 Debian，Ubuntu 等其他系统会提示去商家后台重装成 Debian 12（Ubuntu 有些命令和 Debian 不一样，照着跑容易出岔子）。建议用全新的服务器；装过 3x-ui 的服务器也能运行，但会先删掉旧面板（见上方「已经装过，想换成新版本」）
 - Debian 11 及更老的系统官方已停止支持，原来的软件源会报 404。脚本会自动把源换成存档源 `archive.debian.org`（原来的备份在 `/etc/apt/sources.list.bak-reality-setup`），节点照常能装，但系统不会再有安全更新，建议按下面的步骤原地升级到 Debian 12
 - 3x-ui 面板固定安装 v3.9.0，本身不会自动更新。需要时可以运行 `x-ui` 用菜单更新，但脚本只在 v3.9.0 上测试过，新版本面板的接口变了的话，Xray 自动更新可能会失效
 - Xray 自动更新的记录：`journalctl -u xray-autoupdate`；想立刻检查一次：`xray-autoupdate`

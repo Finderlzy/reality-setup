@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-VERSION=v1.3.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v1.4.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
@@ -11,10 +11,13 @@ PANEL_PORT=8080
 PANEL_PATH=panel PANEL_USER=admin PANEL_PASS=123456
 
 if [ "$(id -u)" -ne 0 ]; then echo "请用 root 用户运行"; exit 1; fi
-if ! command -v apt-get >/dev/null; then
-  OS=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || true)
-  echo "本脚本只支持 Debian / Ubuntu，这台服务器是 ${OS:-其他系统}。"
-  echo "请在 VPS 商家后台把系统重装成 Debian 12（或 Ubuntu 22.04 / 24.04），再运行同一条命令。"
+# 在子 shell 里读 os-release，免得它的 VERSION 覆盖脚本自己的版本号
+read -r OS_ID OS_VER OS_CODE < <(. /etc/os-release 2>/dev/null; echo "${ID:-x} ${VERSION_ID:-99} ${VERSION_CODENAME:-$(echo "${VERSION:-}" | sed -n 's/.*(\(.*\)).*/\1/p')}") || true
+# 只支持 Debian：Ubuntu 等衍生版有些命令和软件包不一样，照着跑容易出岔子
+if [ "${OS_ID:-}" != debian ] || ! command -v apt-get >/dev/null; then
+  OS=$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-}" || true)
+  echo "本脚本只支持 Debian，这台服务器是 ${OS:-其他系统}。"
+  echo "请在 VPS 商家后台把系统重装成 Debian 12（商家最高只有 Debian 11 的，选 Debian 11 也行），再运行同一条命令。"
   exit 1
 fi
 
@@ -61,9 +64,7 @@ fi
 
 # ---- Debian 11 及更老：官方已停止支持，软件源移到了 archive.debian.org，原来的源会 404，apt update 直接失败 ----
 OLD_DEBIAN=
-# 在子 shell 里读 os-release，免得它的 VERSION 覆盖脚本自己的版本号
-read -r OS_ID OS_VER OS_CODE < <(. /etc/os-release 2>/dev/null; echo "${ID:-x} ${VERSION_ID:-99} ${VERSION_CODENAME:-$(echo "${VERSION:-}" | sed -n 's/.*(\(.*\)).*/\1/p')}") || true
-if [ "${OS_ID:-}" = debian ] && [ "${OS_VER:-99}" -le 11 ] 2>/dev/null && [ -n "${OS_CODE:-}" ]; then
+if [ "${OS_VER:-99}" -le 11 ] 2>/dev/null && [ -n "${OS_CODE:-}" ]; then
   OLD_DEBIAN=$OS_CODE
   case $OLD_DEBIAN in
     bullseye) SEC="$OLD_DEBIAN-security"; UPD="deb [check-valid-until=no] http://archive.debian.org/debian $OLD_DEBIAN-updates main contrib non-free" ;;
