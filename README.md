@@ -15,10 +15,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main
 想固定用某个版本（不跟随 `main` 的最新改动），把链接里的 `main` 换成版本号，所有版本见[版本列表](https://github.com/Finderlzy/reality-setup/tags)：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v1.2.1/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v2.0.0/setup.sh)
 ```
 
-按提示确认服务器 IP；有住宅代理就填它的 IP、端口、用户名、密码，没有就直接回车跳过。几分钟后看到 `节点自测 Reality：成功` 和 `节点自测 Hysteria2：成功`，最后会打印两个节点，节点名是服务器所在地，比如 `美国 洛杉矶（主节点）`（查不到所在地就只写 `（主节点）`）：
+按提示确认服务器 IP；有住宅代理就填它的 IP、端口、用户名、密码，没有就直接回车跳过。几分钟后（Debian 11 会先自动升级到 Debian 12，多等 5～15 分钟）看到 `节点自测 Reality：成功` 和 `节点自测 Hysteria2：成功`，最后会打印两个节点，节点名是服务器所在地，比如 `美国 洛杉矶（主节点）`（查不到所在地就只写 `（主节点）`）：
 
 | 节点 | 用途 | 链接保存在 |
 |---|---|---|
@@ -42,16 +42,17 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 
 ## 脚本做了什么
 
-1. 安装 [3x-ui](https://github.com/MHSanaei/3x-ui) v3.9.0，面板只监听 `127.0.0.1`，外网访问不到，只能用 SSH 隧道打开
-2. 通过面板接口创建 VLESS + Reality 入站（TCP 443，流控 `xtls-rprx-vision`），伪装网站从几个大站里挑可用且离服务器最近（握手最快）的
-3. 创建 Hysteria2 备用入站（UDP 443），用自签证书加证书指纹固定，客户端不需要打开“跳过证书验证”；万一建不成会跳过，不影响主节点
-4. 填了住宅代理时：装面板之前先测试代理，不通就直接退出；通了再添加住宅出站，只让 Anthropic 相关域名（以及用来查出口 IP 的 `ipinfo.io`）走住宅 IP
-5. 防火墙（ufw）只放行 SSH 端口和节点端口（TCP 443、UDP 443）
-6. fail2ban 防 SSH 暴力破解：10 分钟内输错 5 次密码封 1 小时
-7. 开启系统安全更新每天自动安装
-8. 开启 BBR 网络优化（容器类 VPS 不允许改内核参数，开不了会跳过，不影响节点）
-9. Xray 内核每周日凌晨 4 点到 6 点（服务器时间）之间自动检查更新，更新后自测不通会自动退回旧版本
-10. 服务器自己连自己的两个节点做一次自测（之后随时可以运行 `node-selftest` 再测；填了住宅代理时，还会打印走节点访问的出口 IP，用来确认住宅 IP 生效），装完打印链接和二维码
+1. 检查系统：不是 Debian 就提示重装成 Debian 12 后退出；Debian 11 及更老把软件源换成存档源 `archive.debian.org`，Debian 11 再原地升级到 Debian 12（见下方「Debian 11 原地升级到 12」）
+2. 安装 [3x-ui](https://github.com/MHSanaei/3x-ui) v3.9.0，面板只监听 `127.0.0.1`，外网访问不到，只能用 SSH 隧道打开
+3. 通过面板接口创建 VLESS + Reality 入站（TCP 443，流控 `xtls-rprx-vision`），伪装网站从几个大站里挑可用且离服务器最近（握手最快）的
+4. 创建 Hysteria2 备用入站（UDP 443），用自签证书加证书指纹固定，客户端不需要打开“跳过证书验证”；万一建不成会跳过，不影响主节点
+5. 填了住宅代理时：装面板之前先测试代理，不通就直接退出；通了再添加住宅出站，只让 Anthropic 相关域名（以及用来查出口 IP 的 `ipinfo.io`）走住宅 IP
+6. 防火墙（ufw）只放行 SSH 端口和节点端口（TCP 443、UDP 443）
+7. fail2ban 防 SSH 暴力破解：10 分钟内输错 5 次密码封 1 小时
+8. 开启系统安全更新每天自动安装（没能升级的 Debian 11 及更老的系统官方不再出安全更新，这一项没有实际效果）
+9. 开启 BBR 网络优化（容器类 VPS 不允许改内核参数，开不了会跳过，不影响节点）
+10. Xray 内核每周日凌晨 4 点到 6 点（服务器时间）之间自动检查更新，更新后自测不通会自动退回旧版本
+11. 服务器自己连自己的两个节点做一次自测（之后随时可以运行 `node-selftest` 再测；填了住宅代理时，还会打印走节点访问的出口 IP，用来确认住宅 IP 生效），装完打印链接和二维码
 
 ## 注意
 
@@ -60,7 +61,7 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 - 3x-ui 面板固定安装 v3.9.0，本身不会自动更新。需要时可以运行 `x-ui` 用菜单更新，但脚本只在 v3.9.0 上测试过，新版本面板的接口变了的话，Xray 自动更新可能会失效
 - Xray 自动更新的记录：`journalctl -u xray-autoupdate`；想立刻检查一次：`xray-autoupdate`
 - 建议 SSH 改用密钥登录并关闭密码登录
-- 面板（排查用）：在自己电脑上运行 `ssh -L 8080:127.0.0.1:8080 root@服务器IP`，浏览器打开 `http://127.0.0.1:8080/panel`，用户名 `admin`，密码 `123456`。面板只监听本机，外网访问不到，所以用了好记的固定账号
+- 面板（排查用）：在自己电脑上运行 `ssh -L 8080:127.0.0.1:8080 root@服务器IP`（SSH 端口不是 22 的，加上 `-p 端口`），浏览器打开 `http://127.0.0.1:8080/panel`，用户名 `admin`，密码 `123456`。面板只监听本机，外网访问不到，所以用了好记的固定账号
 - 被 fail2ban 误封：换个网络连上去，运行 `fail2ban-client set sshd unbanip 你的IP`
 
 ## Debian 11 原地升级到 12
@@ -104,6 +105,8 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 ## 已知问题
 
 - 本地测试中，Clash（mihomo 内核）连 Reality 节点报 `REALITY authentication failed`，同样的参数用 Xray 客户端可以连通，原因还在排查。所以 Clash 配置默认选中 Hysteria2；v2rayN 等 Xray 内核的软件用 Reality 不受影响
+- 装完打印的面板 SSH 隧道命令没带 SSH 端口。SSH 端口不是 22 的服务器，照着运行会连不上，要自己加上 `-p 端口`
+- Reality 节点的 SNI 用的是面板扫描伪装网站后得到的第一个域名，可能带前缀（比如挑中 `www.amazon.com`，链接里却是 `test-www.amazon.com`）。自测能通过，不影响使用
 - 新版 Xray 会提示“用 www.microsoft.com 这类热门网站做伪装目标更容易被墙”，伪装网站的候选列表之后会调整
 
 ## 免责声明
