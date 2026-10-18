@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-VERSION=v1.2.2     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v1.3.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
@@ -57,6 +57,30 @@ if [ -n "$REINSTALL" ]; then
     /root/vless.txt /root/hy2.txt /root/clash.yaml /root/xray.bak /root/cert/hy2.crt /root/cert/hy2.key
   if command -v ufw >/dev/null; then ufw --force delete allow 8555/tcp >/dev/null 2>&1 || true; fi  # v1.0.0 及更早用的节点端口
   echo "== 旧的已删除，开始重新安装 =="
+fi
+
+# ---- Debian 11 及更老：官方已停止支持，软件源移到了 archive.debian.org，原来的源会 404，apt update 直接失败 ----
+OLD_DEBIAN=
+# 在子 shell 里读 os-release，免得它的 VERSION 覆盖脚本自己的版本号
+read -r OS_ID OS_VER OS_CODE < <(. /etc/os-release 2>/dev/null; echo "${ID:-x} ${VERSION_ID:-99} ${VERSION_CODENAME:-$(echo "${VERSION:-}" | sed -n 's/.*(\(.*\)).*/\1/p')}") || true
+if [ "${OS_ID:-}" = debian ] && [ "${OS_VER:-99}" -le 11 ] 2>/dev/null && [ -n "${OS_CODE:-}" ]; then
+  OLD_DEBIAN=$OS_CODE
+  case $OLD_DEBIAN in
+    bullseye) SEC="$OLD_DEBIAN-security"; UPD="deb [check-valid-until=no] http://archive.debian.org/debian $OLD_DEBIAN-updates main contrib non-free" ;;
+    buster)   SEC="$OLD_DEBIAN/updates";  UPD="deb [check-valid-until=no] http://archive.debian.org/debian $OLD_DEBIAN-updates main contrib non-free" ;;
+    *)        SEC="$OLD_DEBIAN/updates";  UPD= ;;
+  esac
+  # 原来的源备份一次（重复运行不覆盖），sources.list.d 里提到这个版本代号的（多是商家自带的镜像源）一起移走
+  [ -e /etc/apt/sources.list.bak-reality-setup ] || cp -a /etc/apt/sources.list /etc/apt/sources.list.bak-reality-setup 2>/dev/null || true
+  mkdir -p /etc/apt/sources.list.d.bak-reality-setup
+  grep -l "$OLD_DEBIAN" /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null \
+    | xargs -r mv -t /etc/apt/sources.list.d.bak-reality-setup/ || true
+  printf '%s\n' \
+    "deb [check-valid-until=no] http://archive.debian.org/debian $OLD_DEBIAN main contrib non-free" \
+    ${UPD:+"$UPD"} \
+    "deb [check-valid-until=no] http://archive.debian.org/debian-security $SEC main contrib non-free" \
+    > /etc/apt/sources.list
+  echo "== Debian $OS_VER 官方已停止支持，软件源已换成存档源 archive.debian.org（原来的备份在 /etc/apt/sources.list.bak-reality-setup）=="
 fi
 
 apt update
@@ -412,7 +436,11 @@ echo
 echo "商家后台有防火墙 / 安全组的话，放行 TCP 443 和 UDP 443"
 echo
 echo "BBR 网络优化：$BBR"
-echo "系统安全更新：已设为每天自动安装"
+if [ -n "$OLD_DEBIAN" ]; then
+  echo "系统安全更新：Debian $OS_VER 官方已停止支持，不会再有安全更新"
+else
+  echo "系统安全更新：已设为每天自动安装"
+fi
 echo "Xray 内核：每周日自动检查更新，更新后自测不通会自动退回旧版本（日志：journalctl -u xray-autoupdate）"
 echo "SSH 防爆破（fail2ban）：$F2B"
 echo "  自己被误封了：换个网络连上去，运行 fail2ban-client set sshd unbanip 你的IP"
@@ -422,3 +450,11 @@ echo "  1. 在自己电脑上运行：ssh -L $PANEL_PORT:127.0.0.1:$PANEL_PORT r
 echo "  2. 浏览器打开：http://127.0.0.1:$PANEL_PORT/$XUI_WEB_BASE_PATH"
 echo "  3. 用户名：$XUI_USERNAME  密码：$XUI_PASSWORD"
 echo "  忘了的话运行：cat /etc/x-ui/install-result.env"
+if [ -n "$OLD_DEBIAN" ] && [ "$OLD_DEBIAN" = bullseye ]; then
+  echo
+  echo "建议把系统原地升级到 Debian 12（节点不受影响，升级后重新有安全更新），步骤见："
+  echo "  https://github.com/Finderlzy/reality-setup#debian-11-原地升级到-12"
+elif [ -n "$OLD_DEBIAN" ]; then
+  echo
+  echo "这个系统太旧了，原地升级要一个版本一个版本升，建议在商家后台重装成 Debian 12"
+fi
