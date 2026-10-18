@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-VERSION=v1.5.0     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v1.5.1     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
@@ -51,7 +51,7 @@ if [ -n "$RES_IP" ]; then
 fi
 if [ -z "$IP" ]; then echo "服务器 IP 不能为空"; exit 1; fi
 
-# ---- Debian 11：问要不要顺便原地升级到 Debian 12（11 官方已停止支持，没有安全更新了）----
+# ---- Debian 11：默认原地升级到 Debian 12（11 官方已停止支持，没有安全更新了），装不了的情况才跳过 ----
 UPGRADE= NO_UPGRADE_WHY=
 if [ "${OS_CODE:-}" = bullseye ]; then
   VIRT=$(systemd-detect-virt 2>/dev/null || true)
@@ -64,8 +64,8 @@ if [ "${OS_CODE:-}" = bullseye ]; then
       if [ "${FREE_KB:-0}" -lt 2000000 ]; then
         NO_UPGRADE_WHY="硬盘剩余空间不到 2 GB，不够升级系统"
       else
-        read -rp "这台是 Debian 11，官方已停止支持。顺便升级到 Debian 12 吗？多花 5～15 分钟，节点照样装 [Y/n]: " ANS
-        case $ANS in n|N) NO_UPGRADE_WHY="你选了不升级" ;; *) UPGRADE=1 ;; esac
+        UPGRADE=1
+        echo "这台是 Debian 11，官方已停止支持。装节点前会先把系统升级到 Debian 12，多花 5～15 分钟。"
       fi ;;
   esac
 fi
@@ -501,10 +501,7 @@ if [ -n "$UPGRADE" ]; then
   echo "系统已从 Debian 11 升级到 Debian $OS_VER。找个方便的时候重启一次，让新内核生效（节点会自动起来）：reboot"
 elif [ "$OLD_DEBIAN" = bullseye ]; then
   echo
-  echo "这次没有升级到 Debian 12（$NO_UPGRADE_WHY）。"
-  if [ "$NO_UPGRADE_WHY" = "你选了不升级" ]; then
-    echo "  想升级了，按这里的步骤手动升级（节点不受影响）：https://github.com/Finderlzy/reality-setup#debian-11-原地升级到-12"
-  fi
+  echo "这次没有升级到 Debian 12（$NO_UPGRADE_WHY），系统不会再有安全更新。"
 elif [ -n "$OLD_DEBIAN" ]; then
   echo
   echo "这个系统太旧了，原地升级要一个版本一个版本升，建议在商家后台重装成 Debian 12"
