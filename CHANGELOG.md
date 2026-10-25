@@ -2,7 +2,7 @@
 
 每个版本写清楚「已经装好的要不要做什么」。要重装就运行同一条命令，脚本会先确认再删掉旧的，详见 [README](README.md#已经装过想换成新版本)。
 
-## 未发布
+## v2.0.1（2026-10-25）
 
 - 修复：Clash 系软件连不上主节点（Reality）。Xray v26.9.8 起的服务端会拒绝 TLS 握手不带 `X25519MLKEM768` 密钥交换的客户端，而 mihomo 内核默认不带，看起来就像节点不通。生成的 `/root/clash.yaml` 现在会在 `reality-opts` 里写上 `support-x25519mlkem768: true`（3x-ui v3.9.0 自己的 Clash 订阅也是这么生成的）
 - README 补上「用 Clash 连不上主节点（Reality）」：原因、怎么自己加这一行，以及仍然存在的限制（客户端要够新；指纹必须用带 ML-KEM 的 `chrome`，`firefox`/`safari` 写了这一行也不行；mihomo 官方不考虑兼容 Xray v26.7.11+）。这一条已用真实 Xray 服务端 + mihomo 客户端实测：对上了就是 204，没对上就是 REALITY 认证失败
