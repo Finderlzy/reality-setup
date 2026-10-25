@@ -28,9 +28,33 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v2.0
 Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印主节点，也没有 Hysteria2 的自测结果。
 
 - **v2rayN、Shadowrocket、Hiddify 等**：复制链接导入，手机可以直接扫打印出来的二维码。想再看二维码：`qrencode -t ANSIUTF8 < /root/vless.txt`（备用节点把 `vless.txt` 换成 `hy2.txt`）
-- **Clash 系（Clash Verge、FlClash、Clash Meta）**：不能直接粘贴分享链接。运行 `cat /root/clash.yaml`，复制全部内容，在软件里新建一个本地配置粘贴进去。两个节点都在里面（Hysteria2 没建成时只有主节点），默认选中 Hysteria2（见下方「已知问题」）
+- **Clash 系（Clash Verge、FlClash、Clash Meta）**：不能直接粘贴分享链接。运行 `cat /root/clash.yaml`，复制全部内容，在软件里新建一个本地配置粘贴进去。两个节点都在里面（Hysteria2 没建成时只有主节点），默认选中 Hysteria2。主节点能不能用取决于客户端版本和指纹，见下方「已知问题」
 
 商家后台有防火墙 / 安全组的话，放行 **TCP 443 和 UDP 443**。
+
+## 用 Clash 连不上主节点（Reality）
+
+现象：在 Clash 系软件里切到主节点，测延迟很慢或者一直超时、网页打不开；同一个节点的 `vless://` 链接在 v2rayN、Shadowrocket 这类 Xray 内核的软件里却正常。
+
+原因在两端对 Reality 的默认行为不一样。Xray 从 **v26.9.8** 起，服务端只认 TLS 握手带 `X25519MLKEM768` 密钥交换的客户端，没带的不当作 Reality，直接当普通网页转发（表现就是连不上、一直转圈）；而 mihomo 内核默认不带，要显式打开。
+
+脚本生成的 `/root/clash.yaml` 已经写好了这一行：
+
+```yaml
+    reality-opts:
+      public-key: "你原来的公钥"
+      short-id: "你原来的 Short ID"
+      support-x25519mlkem768: true
+```
+
+已经装好节点的服务器，不用重装，自己在 `/root/clash.yaml` 里加上 `support-x25519mlkem768: true` 这一行（在 `short-id` 下面）再重新导入即可。
+
+还有两个限制，加完这一行仍然要满足：
+
+- **指纹要用 `chrome`。** 这一行只是允许，真正发不发 ML-KEM 由指纹决定。实测 mihomo v1.19.33 里 `chrome` 会发，`firefox`、`safari` 即使写了这一行也不发，一样连不上。脚本建节点时固定用 `chrome`，配置里的 `client-fingerprint` 就是这个，不要改。
+- **客户端要够新。** mihomo 官方（[wiki](https://wiki.metacubex.one/config/proxies/tls/#reality-opts)）写明不考虑兼容 Xray v26.7.11 及更新版本的 Reality；很老的 Clash 客户端（按 mihomo issue #3326 的说法，v1.19.33 之前可能一直没真正支持）仍然连不上，升级 Clash 客户端试试。
+
+实在不行就用默认选中的 Hysteria2 备用节点。
 
 ## 已经装过，想换成新版本
 
@@ -104,7 +128,7 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 
 ## 已知问题
 
-- 本地测试中，Clash（mihomo 内核）连 Reality 节点报 `REALITY authentication failed`，同样的参数用 Xray 客户端可以连通，原因还在排查。所以 Clash 配置默认选中 Hysteria2；v2rayN 等 Xray 内核的软件用 Reality 不受影响
+- Clash 系软件连主节点（Reality）有额外要求：配置里要有 `support-x25519mlkem768: true`（脚本生成的 `/root/clash.yaml` 已经带上），客户端要够新，指纹要带 ML-KEM 的 `chrome`。原因和排查见上面「用 Clash 连不上主节点」。所以 Clash 配置默认选中 Hysteria2；v2rayN 等 Xray 内核的软件用 Reality 不受影响
 - 装完打印的面板 SSH 隧道命令没带 SSH 端口。SSH 端口不是 22 的服务器，照着运行会连不上，要自己加上 `-p 端口`
 - Reality 节点的 SNI 用的是面板扫描伪装网站后得到的第一个域名，可能带前缀（比如挑中 `www.amazon.com`，链接里却是 `test-www.amazon.com`）。自测能通过，不影响使用
 - 新版 Xray 会提示“用 www.microsoft.com 这类热门网站做伪装目标更容易被墙”，伪装网站的候选列表之后会调整

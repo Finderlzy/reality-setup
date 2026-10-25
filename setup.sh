@@ -288,7 +288,7 @@ hy2 = f"""
     sni: {s(E["HY_SNI"])}
     fingerprint: {s(pin)}
     alpn: [h3]""" if hy_link else ""
-# 默认选中 Hysteria2：mihomo 连 Reality 的兼容性还没确认
+# 默认选中 Hysteria2：mihomo 连 Reality 还要求较新的客户端和 chrome 指纹（见 README「已知问题」）
 group = [s(HY_NAME), s(MAIN_NAME)] if hy_link else [s(MAIN_NAME)]
 open("/root/clash.yaml", "w").write(f"""proxies:
   - name: {s(MAIN_NAME)}
@@ -302,9 +302,12 @@ open("/root/clash.yaml", "w").write(f"""proxies:
     flow: {s(q.get("flow", ""))}
     servername: {s(q["sni"])}
     client-fingerprint: {s(q.get("fp", "chrome"))}
+    # mihomo 的 Reality 默认不带 X25519MLKEM768 密钥交换，而 Xray v26.9.8 起的服务端
+    # 会拒绝这种握手（客户端看起来像“连上了但不通”），必须显式打开
     reality-opts:
       public-key: {s(q["pbk"])}
-      short-id: {s(q.get("sid", ""))}{hy2}
+      short-id: {s(q.get("sid", ""))}
+      support-x25519mlkem768: true{hy2}
 proxy-groups:
   - name: {s("节点选择")}
     type: select
