@@ -74,8 +74,9 @@
 ## 发版
 
 1. 改 `setup.sh` 的 `VERSION=`，同步写 `CHANGELOG.md`（每个版本写清「已经装好的要不要做什么」）。
-2. 打 git 标签（`vX.Y.Z`），推送。
+2. 打 git 标签（`vX.Y.Z`），推送。**必须用轻量标签**（`git tag vX.Y.Z`），不要用 `git tag -a`：附注标签在 `raw.githubusercontent.com` 上解析成 404，读者拿到的就是坏链接。仓库现有的 `v2.0.0` 也是轻量标签。
 3. **按上面的强制规则同步 re0 和 writing 的引用版本号。**
+4. 推送后实际访问一次 `https://raw.githubusercontent.com/Finderlzy/reality-setup/vX.Y.Z/setup.sh`，确认返回 200 且 `VERSION=` 是新版本，再结束。
 
 ## 边界
 
