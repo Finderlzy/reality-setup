@@ -292,7 +292,7 @@ hy2 = f"""
 # 打开 dns 后，按域名分流的规则直接命中，不用先等本地解析出 IP，也就不会被污染
 nameservers = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"]
 # 默认用「自动选择」：客户端会同时测两个节点的延迟。不支持 Reality 的 ML-KEM 时 Reality 测不通，自动落到 Hysteria2；
-# 晚高峰运营商对 UDP 限速时 Hysteria2 变慢，又自动换回走 TCP 的 Reality（见 README「Clash 开着代理上网慢」）
+# 晚高峰运营商对 UDP 限速时 Hysteria2 变慢，又自动换回走 TCP 的 Reality
 candidates = [s(MAIN_NAME), s(HY_NAME)] if hy_link else [s(MAIN_NAME)]
 open("/root/clash.yaml", "w").write(f"""mixed-port: 7890
 mode: rule

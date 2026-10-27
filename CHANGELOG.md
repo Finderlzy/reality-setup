@@ -1,6 +1,6 @@
 # 更新记录
 
-每个版本写清楚「已经装好的要不要做什么」。要重装就运行同一条命令，脚本会先确认再删掉旧的，详见 [README](README.md#已经装过想换成新版本)。
+每个版本写清楚「已经装好的要不要做什么」。要重装就运行同一条命令，脚本会先确认再删掉旧的，详见 [README](README.md#已经装过的)。
 
 ## v2.0.2（2026-10-27）
 
@@ -9,14 +9,14 @@
   - 默认选中 Hysteria2（UDP 443），国内运营商晚高峰常对 UDP 限速或丢包。现在默认走「自动选择」（`url-test`，每 300 秒测一次两个节点），Reality 连不上时自动落到 Hysteria2，UDP 被限速时自动换回走 TCP 的 Reality
   - 地理库从 GitHub 下载，国内可能失败或很慢。现在 `geox-url` 指向 jsdelivr 的镜像
   - 另外补了 `mixed-port`、`tcp-concurrent`、`unified-delay` 等全局设置
-- README 新增「Clash 开着代理上网慢」：原因、已经装好的用户怎么替换配置（全局设置和 `dns` 段、`proxy-groups`、`rules` 的完整内容），以及没改配置时先手动切到主节点的临时办法
+- 这一版 README 里曾经写过对应的一节，后来按作者要求删掉了；老用户的写法见下面「已经装好的」
 
-**已经装好的**：不用重装，节点和服务端都没动。按 README「Clash 开着代理上网慢」里「已经装好的怎么处理」改：`proxies` 段不动，把配置开头的全局设置和末尾的 `proxy-groups`、`rules` 换成新版，重新导入即可。懒得改的，先在软件里把「节点选择」手动切到主节点，通常就能明显变快（客户端要够新）。
+**已经装好的**：不用重装，节点和服务端都没动。想用上新配置的话：运行 `cat /root/clash.yaml`，`proxies` 段不动，在开头加上全局设置和 `dns` 段、把末尾的 `proxy-groups`、`rules` 换成这一版生成的内容（可以重装到新版本直接从 `/root/clash.yaml` 里照抄），改完重新导入。懒得改的，先在软件里把「节点选择」手动切到主节点，通常就能明显变快（客户端要够新）。
 
 ## v2.0.1（2026-10-25）
 
 - 修复：Clash 系软件连不上主节点（Reality）。Xray v26.9.8 起的服务端会拒绝 TLS 握手不带 `X25519MLKEM768` 密钥交换的客户端，而 mihomo 内核默认不带，看起来就像节点不通。生成的 `/root/clash.yaml` 现在会在 `reality-opts` 里写上 `support-x25519mlkem768: true`（3x-ui v3.9.0 自己的 Clash 订阅也是这么生成的）
-- README 补上「用 Clash 连不上主节点（Reality）」：原因、怎么自己加这一行，以及仍然存在的限制（客户端要够新；指纹必须用带 ML-KEM 的 `chrome`，`firefox`/`safari` 写了这一行也不行；mihomo 官方不考虑兼容 Xray v26.7.11+）。这一条已用真实 Xray 服务端 + mihomo 客户端实测：对上了就是 204，没对上就是 REALITY 认证失败
+- 仍然存在的限制：客户端要够新；指纹必须用带 ML-KEM 的 `chrome`，`firefox`/`safari` 写了这一行也不行；mihomo 官方不考虑兼容 Xray v26.7.11+。这一条已用真实 Xray 服务端 + mihomo 客户端实测：对上了就是 204，没对上就是 REALITY 认证失败
 
 **已经装好的**：不用重装。在 `/root/clash.yaml` 的 `reality-opts` 下、`short-id` 后面自己加一行 `support-x25519mlkem768: true`，重新导入即可。
 
@@ -43,7 +43,7 @@
 - Debian 11 上运行时，脚本会问要不要顺便原地升级到 Debian 12，直接回车就升级：先把 11 更新到最新，再换成 12 的软件源升级，升完接着装节点。升级不弹对话框，改过的配置（比如 SSH 端口）都保留。容器类 VPS（OpenVZ、LXC）和硬盘剩余不到 2 GB 的不升级
 - README 的手动升级步骤补上漏掉的一步：先把 Debian 11 更新到最新，否则换成 12 的源会报 `NO_PUBKEY`
 
-**已经装好的**：不用动。在 Debian 11 上装好、想升级系统的，按 README「Debian 11 原地升级到 12」里的手动步骤升级，节点不受影响。
+**已经装好的**：不用动。在 Debian 11 上装好、想升级系统的，按当时 README 里的手动步骤升级，节点不受影响（能重装的直接再运行一次命令，脚本会自动升级系统）。
 
 ## v1.4.0（2026-10-18）
 
@@ -54,7 +54,7 @@
 
 ## v1.3.0（2026-10-18）
 
-- 支持 Debian 11 及更老的系统：这些系统官方已停止支持，原来的软件源会 404，`apt update` 报错后脚本直接退出。现在脚本会先备份原来的源，自动换成存档源 `archive.debian.org` 再装；装完提示可以原地升级到 Debian 12，步骤见 [README](README.md#debian-11-原地升级到-12)
+- 支持 Debian 11 及更老的系统：这些系统官方已停止支持，原来的软件源会 404，`apt update` 报错后脚本直接退出。现在脚本会先备份原来的源，自动换成存档源 `archive.debian.org` 再装；装完提示可以原地升级到 Debian 12，步骤见 [v1.5.0 时的 README](https://github.com/Finderlzy/reality-setup/blob/v2.0.1/README.md#debian-11-%E5%8E%9F%E5%9C%B0%E5%8D%87%E7%BA%A7%E5%88%B0-12)
 
 **已经装好的**：不用动。Debian 11 上之前装不上的，直接再运行一次命令即可。
 
