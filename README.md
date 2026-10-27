@@ -28,7 +28,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/v2.0
 Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印主节点，也没有 Hysteria2 的自测结果。
 
 - **v2rayN、Shadowrocket、Hiddify 等**：复制链接导入，手机可以直接扫打印出来的二维码。想再看二维码：`qrencode -t ANSIUTF8 < /root/vless.txt`（备用节点把 `vless.txt` 换成 `hy2.txt`）
-- **Clash 系（Clash Verge、FlClash、Clash Meta）**：不能直接粘贴分享链接。运行 `cat /root/clash.yaml`，复制全部内容，在软件里新建一个本地配置粘贴进去。两个节点都在里面（Hysteria2 没建成时只有主节点），默认选中 Hysteria2。主节点能不能用取决于客户端版本和指纹，见下方「已知问题」
+- **Clash 系（Clash Verge、FlClash、Clash Meta）**：不能直接粘贴分享链接。运行 `cat /root/clash.yaml`，复制全部内容，在软件里新建一个本地配置粘贴进去。两个节点都在里面（Hysteria2 没建成时只有主节点），默认自动选择走得快的那个（见下方「Clash 开着代理上网慢」）。主节点能不能用取决于客户端版本和指纹，见下方「已知问题」
 
 商家后台有防火墙 / 安全组的话，放行 **TCP 443 和 UDP 443**。
 
@@ -54,7 +54,71 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 - **指纹要用 `chrome`。** 这一行只是允许，真正发不发 ML-KEM 由指纹决定。实测 mihomo v1.19.33 里 `chrome` 会发，`firefox`、`safari` 即使写了这一行也不发，一样连不上。脚本建节点时固定用 `chrome`，配置里的 `client-fingerprint` 就是这个，不要改。
 - **客户端要够新。** mihomo 官方（[wiki](https://wiki.metacubex.one/config/proxies/tls/#reality-opts)）写明不考虑兼容 Xray v26.7.11 及更新版本的 Reality；很老的 Clash 客户端（按 mihomo issue #3326 的说法，v1.19.33 之前可能一直没真正支持）仍然连不上，升级 Clash 客户端试试。
 
-实在不行就用默认选中的 Hysteria2 备用节点。
+实在不行就在「节点选择」里手动切到 Hysteria2 备用节点。
+
+## Clash 开着代理上网慢
+
+现象：用 Clash 系软件（Clash Verge、FlClash、Clash Meta，内核是 mihomo）开着代理上网，每打开一个新网站都要先顿一下；国内网站也慢。同一个节点在 v2rayN 这类 Xray 内核的软件里不会。
+
+原因有三个，按影响从大到小：
+
+1. **配置里没有 `dns` 段，规则又只用 IP 匹配。** 老的 `/root/clash.yaml` 只有 `GEOIP,CN,DIRECT` 这种按 IP 的规则（还没有 `no-resolve`），所以每访问一个新域名，都要先用系统（运营商）DNS 把这个域名解析成 IP 才能判断走不走节点。境外域名的解析经常又慢又可能被污染，表现就是网页先卡一下才打开。新版配置加了 `dns` 段（fake-ip 模式，用阿里、腾讯的 DoH 解析），规则改成先按域名分流（`GEOSITE`）、再按 IP 分流且不解析（`no-resolve`），国内域名和境外域名在本地就直接分开了。
+2. **默认选中 Hysteria2。** Hysteria2 走 UDP，国内运营商在晚高峰经常对 UDP 限速或丢包，测出来时快时慢。新版默认用「自动选择」，由客户端按延迟自动挑节点：UDP 被限速时自动换到走 TCP 的 Reality。
+3. **地理库（geoip、geosite）从 GitHub 下载。** 国内经常失败或者很慢。新版把下载地址改成 jsdelivr 的镜像。
+
+### 已经装好的怎么处理
+
+不用重装，节点和服务端都没动。在服务器上运行 `cat /root/clash.yaml`，按下面的方式改完再重新导入（在 Clash 系软件里新建一个本地配置，粘贴进去保存）：
+
+- **`proxies:` 这一段（两个节点的名字、密码、公钥等）原样不动。**
+- 在配置最开头（`proxies:` 之前）加上全局设置和 `dns` 段：
+
+```yaml
+mixed-port: 7890
+mode: rule
+log-level: warning
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: "off"
+geodata-mode: true
+geo-auto-update: false
+geox-url:
+  geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+  geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  mmdb: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country-lite.mmdb"
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter: ["*.lan", "+.local", "+.msftconnecttest.com", "+.msftncsi.com"]
+  default-nameserver: [223.5.5.5, 119.29.29.29]
+  nameserver: ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"]
+  proxy-server-nameserver: ["https://223.5.5.5/dns-query"]
+```
+
+- 把末尾的 `proxy-groups:` 和 `rules:` 整段换成下面的。**节点名要和 `proxies:` 里的名字一字不差**（脚本按服务器所在地取名，比如 `美国 洛杉矶（主节点）`、`美国 洛杉矶（备用节点）`）；没有 Hysteria2 备用节点的，把两个列表里带「备用节点」的那一项删掉：
+
+```yaml
+proxy-groups:
+  - name: "节点选择"
+    type: select
+    proxies: ["自动选择", "美国 洛杉矶（主节点）", "美国 洛杉矶（备用节点）", DIRECT]
+  - name: "自动选择"
+    type: url-test
+    url: "https://www.gstatic.com/generate_204"
+    interval: 300
+    tolerance: 50
+    proxies: ["美国 洛杉矶（主节点）", "美国 洛杉矶（备用节点）"]
+rules:
+  - GEOSITE,private,DIRECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,LAN,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,节点选择
+```
+
+**先别改配置的话**：在软件里把「节点选择」手动切到主节点（Reality，走 TCP）通常就能明显变快，因为主要卡顿来自 UDP 被限速的 Hysteria2。客户端要够新，否则主节点连不上，见上面「用 Clash 连不上主节点（Reality）」。
 
 ## 已经装过，想换成新版本
 
@@ -70,13 +134,14 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 2. 安装 [3x-ui](https://github.com/MHSanaei/3x-ui) v3.9.0，面板只监听 `127.0.0.1`，外网访问不到，只能用 SSH 隧道打开
 3. 通过面板接口创建 VLESS + Reality 入站（TCP 443，流控 `xtls-rprx-vision`），伪装网站从几个大站里挑可用且离服务器最近（握手最快）的
 4. 创建 Hysteria2 备用入站（UDP 443），用自签证书加证书指纹固定，客户端不需要打开“跳过证书验证”；万一建不成会跳过，不影响主节点
-5. 填了住宅代理时：装面板之前先测试代理，不通就直接退出；通了再添加住宅出站，只让 Anthropic 相关域名（以及用来查出口 IP 的 `ipinfo.io`）走住宅 IP
-6. 防火墙（ufw）只放行 SSH 端口和节点端口（TCP 443、UDP 443）
-7. fail2ban 防 SSH 暴力破解：10 分钟内输错 5 次密码封 1 小时
-8. 开启系统安全更新每天自动安装（没能升级的 Debian 11 及更老的系统官方不再出安全更新，这一项没有实际效果）
-9. 开启 BBR 网络优化（容器类 VPS 不允许改内核参数，开不了会跳过，不影响节点）
-10. Xray 内核每周日凌晨 4 点到 6 点（服务器时间）之间自动检查更新，更新后自测不通会自动退回旧版本
-11. 服务器自己连自己的两个节点做一次自测（之后随时可以运行 `node-selftest` 再测；填了住宅代理时，还会打印走节点访问的出口 IP，用来确认住宅 IP 生效），装完打印链接和二维码
+5. 另外生成一份 Clash 配置 `/root/clash.yaml`：两个节点做成「节点选择」（默认「自动选择」，按延迟自动挑节点），自带 `dns` 段（fake-ip，DoH 解析）和按域名分流的规则，地理库从 jsdelivr 下载
+6. 填了住宅代理时：装面板之前先测试代理，不通就直接退出；通了再添加住宅出站，只让 Anthropic 相关域名（以及用来查出口 IP 的 `ipinfo.io`）走住宅 IP
+7. 防火墙（ufw）只放行 SSH 端口和节点端口（TCP 443、UDP 443）
+8. fail2ban 防 SSH 暴力破解：10 分钟内输错 5 次密码封 1 小时
+9. 开启系统安全更新每天自动安装（没能升级的 Debian 11 及更老的系统官方不再出安全更新，这一项没有实际效果）
+10. 开启 BBR 网络优化（容器类 VPS 不允许改内核参数，开不了会跳过，不影响节点）
+11. Xray 内核每周日凌晨 4 点到 6 点（服务器时间）之间自动检查更新，更新后自测不通会自动退回旧版本
+12. 服务器自己连自己的两个节点做一次自测（之后随时可以运行 `node-selftest` 再测；填了住宅代理时，还会打印走节点访问的出口 IP，用来确认住宅 IP 生效），装完打印链接和二维码
 
 ## 注意
 
@@ -128,7 +193,7 @@ Hysteria2 万一没建成会跳过，不影响主节点，只是最后只打印�
 
 ## 已知问题
 
-- Clash 系软件连主节点（Reality）有额外要求：配置里要有 `support-x25519mlkem768: true`（脚本生成的 `/root/clash.yaml` 已经带上），客户端要够新，指纹要带 ML-KEM 的 `chrome`。原因和排查见上面「用 Clash 连不上主节点」。所以 Clash 配置默认选中 Hysteria2；v2rayN 等 Xray 内核的软件用 Reality 不受影响
+- Clash 系软件连主节点（Reality）有额外要求：配置里要有 `support-x25519mlkem768: true`（脚本生成的 `/root/clash.yaml` 已经带上），客户端要够新，指纹要带 ML-KEM 的 `chrome`。原因和排查见上面「用 Clash 连不上主节点」。所以 Clash 配置默认用「自动选择」，Reality 连不上时自动落到 Hysteria2；v2rayN 等 Xray 内核的软件用 Reality 不受影响。另外，用旧配置时开着代理上网慢，原因和处理见上面「Clash 开着代理上网慢」
 - 装完打印的面板 SSH 隧道命令没带 SSH 端口。SSH 端口不是 22 的服务器，照着运行会连不上，要自己加上 `-p 端口`
 - Reality 节点的 SNI 用的是面板扫描伪装网站后得到的第一个域名，可能带前缀（比如挑中 `www.amazon.com`，链接里却是 `test-www.amazon.com`）。自测能通过，不影响使用
 - 新版 Xray 会提示“用 www.microsoft.com 这类热门网站做伪装目标更容易被墙”，伪装网站的候选列表之后会调整

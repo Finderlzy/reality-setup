@@ -2,6 +2,17 @@
 
 每个版本写清楚「已经装好的要不要做什么」。要重装就运行同一条命令，脚本会先确认再删掉旧的，详见 [README](README.md#已经装过想换成新版本)。
 
+## v2.0.2（2026-10-27）
+
+- 修复：用生成的 `/root/clash.yaml` 在 Clash 系软件（内核 mihomo）里开着代理上网很慢。按影响从大到小：
+  - 配置只有 `proxies`、`proxy-groups`、`rules` 三段，没有 `dns` 段，`GEOIP,CN,DIRECT` 也不带 `no-resolve`，每访问一个新域名都要先用运营商 DNS 解析出 IP 才能匹配规则，境外域名解析慢、还可能被污染。现在加了 `dns` 段（fake-ip，阿里、腾讯 DoH），规则改成 `GEOSITE,private` / `GEOSITE,cn` 先按域名直连，`GEOIP,LAN` / `GEOIP,CN` 带 `no-resolve`
+  - 默认选中 Hysteria2（UDP 443），国内运营商晚高峰常对 UDP 限速或丢包。现在默认走「自动选择」（`url-test`，每 300 秒测一次两个节点），Reality 连不上时自动落到 Hysteria2，UDP 被限速时自动换回走 TCP 的 Reality
+  - 地理库从 GitHub 下载，国内可能失败或很慢。现在 `geox-url` 指向 jsdelivr 的镜像
+  - 另外补了 `mixed-port`、`tcp-concurrent`、`unified-delay` 等全局设置
+- README 新增「Clash 开着代理上网慢」：原因、已经装好的用户怎么替换配置（全局设置和 `dns` 段、`proxy-groups`、`rules` 的完整内容），以及没改配置时先手动切到主节点的临时办法
+
+**已经装好的**：不用重装，节点和服务端都没动。按 README「Clash 开着代理上网慢」里「已经装好的怎么处理」改：`proxies` 段不动，把配置开头的全局设置和末尾的 `proxy-groups`、`rules` 换成新版，重新导入即可。懒得改的，先在软件里把「节点选择」手动切到主节点，通常就能明显变快（客户端要够新）。
+
 ## v2.0.1（2026-10-25）
 
 - 修复：Clash 系软件连不上主节点（Reality）。Xray v26.9.8 起的服务端会拒绝 TLS 握手不带 `X25519MLKEM768` 密钥交换的客户端，而 mihomo 内核默认不带，看起来就像节点不通。生成的 `/root/clash.yaml` 现在会在 `reality-opts` 里写上 `support-x25519mlkem768: true`（3x-ui v3.9.0 自己的 Clash 订阅也是这么生成的）

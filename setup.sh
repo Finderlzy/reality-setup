@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 一键搭建 VLESS + Reality 节点（3x-ui 面板），附带 Hysteria2 备用节点，可选套住宅 IP
 # 用法：bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main/setup.sh)
-VERSION=v2.0.1     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
+VERSION=v2.0.2     # 发新版时和 git 标签一起改；装完写进 /etc/reality-setup/version
 PORT=443           # Reality 用 TCP 443，Hysteria2 用 UDP 443
 HY_SNI=www.bing.com  # Hysteria2 自签证书上写的域名
 PANEL_PORT=8080
@@ -288,9 +288,37 @@ hy2 = f"""
     sni: {s(E["HY_SNI"])}
     fingerprint: {s(pin)}
     alpn: [h3]""" if hy_link else ""
-# 默认选中 Hysteria2：mihomo 连 Reality 还要求较新的客户端和 chrome 指纹（见 README「已知问题」）
-group = [s(HY_NAME), s(MAIN_NAME)] if hy_link else [s(MAIN_NAME)]
-open("/root/clash.yaml", "w").write(f"""proxies:
+# 不写 dns 段时，每访问一个新域名都要先用运营商 DNS 解析出 IP 才能匹配 GEOIP 规则，境外域名慢、还可能被污染；
+# 打开 dns 后，按域名分流的规则直接命中，不用先等本地解析出 IP，也就不会被污染
+nameservers = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"]
+# 默认用「自动选择」：客户端会同时测两个节点的延迟。不支持 Reality 的 ML-KEM 时 Reality 测不通，自动落到 Hysteria2；
+# 晚高峰运营商对 UDP 限速时 Hysteria2 变慢，又自动换回走 TCP 的 Reality（见 README「Clash 开着代理上网慢」）
+candidates = [s(MAIN_NAME), s(HY_NAME)] if hy_link else [s(MAIN_NAME)]
+open("/root/clash.yaml", "w").write(f"""mixed-port: 7890
+mode: rule
+log-level: warning
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: "off"
+geodata-mode: true
+geo-auto-update: false
+# 地理库从 jsdelivr 下载：默认的 GitHub 地址在国内经常失败或很慢
+geox-url:
+  geoip: {s("https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat")}
+  geosite: {s("https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat")}
+  mmdb: {s("https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country-lite.mmdb")}
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter: ["*.lan", "+.local", "+.msftconnecttest.com", "+.msftncsi.com"]
+  # default-nameserver 只用来解析下面那几个 DoH 地址，必须是 IP
+  default-nameserver: [223.5.5.5, 119.29.29.29]
+  nameserver: [{", ".join(s(n) for n in nameservers)}]
+  # 节点服务器的域名也从国内 DoH 解析，免得先在本地拿到被污染的 IP
+  proxy-server-nameserver: [{s(nameservers[0])}]
+proxies:
   - name: {s(MAIN_NAME)}
     type: vless
     server: {s(E["IP"])}
@@ -311,10 +339,20 @@ open("/root/clash.yaml", "w").write(f"""proxies:
 proxy-groups:
   - name: {s("节点选择")}
     type: select
-    proxies: [{", ".join(group)}, DIRECT]
+    proxies: [{s("自动选择")}, {", ".join(candidates)}, DIRECT]
+  - name: {s("自动选择")}
+    type: url-test
+    url: {s("https://www.gstatic.com/generate_204")}
+    interval: 300
+    tolerance: 50
+    proxies: [{", ".join(candidates)}]
 rules:
+  # 先按域名分流：国内的域名直接直连，不用解析 IP
+  - GEOSITE,private,DIRECT
+  - GEOSITE,cn,DIRECT
+  # 剩下的按 IP 分流，no-resolve 表示不为了匹配这一条去解析域名
   - GEOIP,LAN,DIRECT,no-resolve
-  - GEOIP,CN,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
   - MATCH,节点选择
 """)
 PY
