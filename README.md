@@ -19,6 +19,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Finderlzy/reality-setup/main
 
 复制链接导入 v2rayN、Shadowrocket、Hiddify 等客户端，手机扫打印出来的二维码。再看二维码：`qrencode -t ANSIUTF8 < /root/vless.txt`
 
+Clash 系（Clash Verge、FlClash、Clash Meta）不能直接粘贴分享链接：运行 `cat /root/clash.yaml`，复制全部内容，在软件里新建一个本地配置粘贴进去，默认自动选节点。
+
 商家后台有防火墙 / 安全组的话，放行 **TCP 443 和 UDP 443**。想固定用某个版本，把命令里的 `main` 换成版本号，见[版本列表](https://github.com/Finderlzy/reality-setup/tags)。
 
 ## 已经装过的
